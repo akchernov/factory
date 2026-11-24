@@ -62,7 +62,7 @@ export function createUi(onNewGame: (peaceful: boolean) => void, onContinue: () 
     <div id="hotbar">
       <div id="tooltip" class="panel hidden"></div>
       <div id="slots"></div>
-      <div class="hint" id="hint">ЛКМ ставить · тяни конвейер мышью · R повернуть · ПКМ снести · колесо зум · WASD камера</div>
+      <div class="hint" id="hint">ЛКМ ставить · тяни конвейер мышью · R повернуть · ПКМ снести · <b style="color:#8ee05a">▶</b> вход <b style="color:#ffc23d">▶</b> выход · наведи на здание: куда идёт продукция</div>
     </div>
 
     <div id="toasts"></div>
@@ -561,6 +561,7 @@ export function createUi(onNewGame: (peaceful: boolean) => void, onContinue: () 
       el.classList.toggle('on', ctl.tool === t);
       el.classList.toggle('locked', !ctl.game.isUnlocked(t));
       el.classList.toggle('poor', ctl.game.state.money < BUILDINGS[t].cost);
+      el.classList.toggle('guide', ctl.guideType === t && ctl.tool !== t);
     });
   }
 

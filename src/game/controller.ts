@@ -22,6 +22,8 @@ export const ctl = {
   paused: false,
   started: false,
   hover: null as { x: number; y: number } | null,
+  /** Building the tutorial wants placed next (hotbar highlights it). */
+  guideType: null as BuildingId | null,
   listeners: [] as Listener[],
 
   on(fn: Listener) { this.listeners.push(fn); },

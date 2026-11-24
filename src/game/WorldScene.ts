@@ -5,6 +5,7 @@ import { DX, DY, FAIL_TEXT, type Building, type Dir, type GameEvent } from '../c
 import { audio } from './audio';
 import { ctl } from './controller';
 import { BELT_FRAMES, TILE, createProceduralTextures } from './textures';
+import { guideStep, type GuideStep } from './guide';
 
 const SPRITES = [
   'b_hive', 'b_extractor', 'b_packer', 'b_brewery', 'b_market', 'b_lab', 'b_breeder', 'b_chest', 'b_chandlery', 'b_monument', 'b_well',
@@ -78,6 +79,13 @@ export class WorldScene extends Phaser.Scene {
   private hpGfx!: Phaser.GameObjects.Graphics;
   private smokePuff!: Phaser.GameObjects.Particles.ParticleEmitter;
   private rangeGfx!: Phaser.GameObjects.Graphics;
+  private portsGfx!: Phaser.GameObjects.Graphics;
+  private chainGfx!: Phaser.GameObjects.Graphics;
+  private guideGfx!: Phaser.GameObjects.Graphics;
+  private guideArrow!: Phaser.GameObjects.Image;
+  private guideText!: Phaser.GameObjects.Text;
+  private guide: GuideStep | null = null;
+  private guideKey = '';
 
   constructor() {
     super('world');
@@ -106,6 +114,14 @@ export class WorldScene extends Phaser.Scene {
     this.setupFx();
     this.hpGfx = this.add.graphics().setDepth(1e6 + 3);
     this.rangeGfx = this.add.graphics().setDepth(-30);
+    this.portsGfx = this.add.graphics().setDepth(1e6 - 20);
+    this.chainGfx = this.add.graphics().setDepth(1e6 - 19);
+    this.guideGfx = this.add.graphics().setDepth(1e6 - 3);
+    this.guideArrow = this.add.image(0, 0, 'arrow').setScale(2.2).setAngle(90).setDepth(1e6 + 2).setVisible(false);
+    this.guideText = this.add.text(0, 0, '', {
+      fontFamily: 'Nunito, system-ui, sans-serif', fontSize: '18px', fontStyle: '900', color: '#ffe36a', stroke: '#2a1c10', strokeThickness: 6,
+    }).setOrigin(0.5, 1).setDepth(1e6 + 2).setVisible(false);
+    this.guideKey = '';
     this.smokePuff = this.add.particles(0, 0, 'smoke', {
       speed: { min: 10, max: 40 }, lifespan: 900, scale: { start: 0.5, end: 1.6 }, alpha: { start: 0.65, end: 0 }, tint: 0xe8e0d0, emitting: false,
     }).setDepth(1e6 + 4);
@@ -532,6 +548,147 @@ export class WorldScene extends Phaser.Scene {
 
   private refreshBelts() {
     for (const v of this.views.values()) if (BELT_TYPES.has(v.b.type)) this.applyBeltLook(v);
+    if (this.portsGfx) this.drawPorts();
+  }
+
+  // ---------------------------------------------------------------- ports & chains
+
+  /** Belts touching a building: [belt, side, incoming]. side: 0 E, 1 S, 2 W, 3 N of the building. */
+  private portsOf(b: Building): { belt: Building; side: Dir; incoming: boolean; ex: number; ey: number }[] {
+    const g = ctl.game;
+    const s = BUILDINGS[b.type].size;
+    const out: { belt: Building; side: Dir; incoming: boolean; ex: number; ey: number }[] = [];
+    for (let i = 0; i < s; i++) {
+      const sides: [number, number, Dir][] = [[b.x + s, b.y + i, 0], [b.x + i, b.y + s, 1], [b.x - 1, b.y + i, 2], [b.x + i, b.y - 1, 3]];
+      for (const [x, y, side] of sides) {
+        const n = g.at(x, y);
+        if (!n || BUILDINGS[n.type].behaviour !== 'belt') continue;
+        const incoming = n.dir === (side + 2) % 4;
+        const outgoing = n.dir === side;
+        if (!incoming && !outgoing) continue;
+        // edge midpoint between building tile and belt tile
+        out.push({ belt: n, side, incoming, ex: (x + 0.5 - DX[side] * 0.5) * TILE, ey: (y + 0.5 - DY[side] * 0.5) * TILE });
+      }
+    }
+    return out;
+  }
+
+  private portArrow(gfx: Phaser.GameObjects.Graphics, x: number, y: number, dir: number, color: number, size = 9) {
+    const dx = DX[dir as Dir];
+    const dy = DY[dir as Dir];
+    const px = -dy;
+    const py = dx;
+    gfx.fillStyle(0x1a0f06, 0.85).fillCircle(x, y, size + 4);
+    gfx.fillStyle(color, 1).fillTriangle(
+      x + dx * size, y + dy * size,
+      x - dx * size * 0.6 + px * size * 0.8, y - dy * size * 0.6 + py * size * 0.8,
+      x - dx * size * 0.6 - px * size * 0.8, y - dy * size * 0.6 - py * size * 0.8,
+    );
+  }
+
+  /** Permanent port markers: green arrow = belt brings items in, gold arrow = building sends items out. */
+  private drawPorts() {
+    this.portsGfx.clear();
+    for (const b of ctl.game.state.buildings) {
+      const beh = BUILDINGS[b.type].behaviour;
+      if (beh === 'belt' || beh === 'wall') continue;
+      for (const p of this.portsOf(b)) {
+        this.portArrow(this.portsGfx, p.ex, p.ey, p.incoming ? (p.side + 2) % 4 : p.side, p.incoming ? 0x8ee05a : 0xffc23d);
+      }
+    }
+  }
+
+  /** Follow a belt to the building it ends in; returns visited belts and the end. */
+  private trace(start: Building) {
+    const g = ctl.game;
+    const path: Building[] = [];
+    const seen = new Set<number>();
+    let b: Building | undefined = start;
+    while (b && BUILDINGS[b.type].behaviour === 'belt' && !seen.has(b.id)) {
+      seen.add(b.id);
+      path.push(b);
+      const next = g.at(b.x + DX[b.dir], b.y + DY[b.dir]);
+      if (!next || (BUILDINGS[next.type].behaviour === 'belt' && next.dir === (b.dir + 2) % 4)) return { path, end: undefined as Building | undefined, endX: b.x + DX[b.dir], endY: b.y + DY[b.dir] };
+      b = next;
+    }
+    return { path, end: b && BUILDINGS[b.type].behaviour !== 'belt' ? b : undefined, endX: 0, endY: 0 };
+  }
+
+  /** Hover or select a building/belt: light up where its products go. */
+  private updateChain() {
+    const gfx = this.chainGfx;
+    gfx.clear();
+    if (!ctl.started) return;
+    const g = ctl.game;
+    let b: Building | undefined;
+    if (ctl.selected) b = g.get(ctl.selected);
+    if (!b && !ctl.tool && ctl.hover) b = g.at(ctl.hover.x, ctl.hover.y);
+    if (!b) return;
+    const pulse = 0.55 + Math.sin(this.time.now / 180) * 0.25;
+    const starts: Building[] = [];
+    if (BUILDINGS[b.type].behaviour === 'belt') starts.push(b);
+    else for (const p of this.portsOf(b)) if (!p.incoming) starts.push(p.belt);
+    for (const st of starts) {
+      const { path, end, endX, endY } = this.trace(st);
+      gfx.lineStyle(6, 0xffe36a, pulse);
+      gfx.beginPath();
+      path.forEach((t, i) => {
+        const x = (t.x + 0.5) * TILE;
+        const y = (t.y + 0.5) * TILE;
+        if (i === 0) gfx.moveTo(x, y);
+        else gfx.lineTo(x, y);
+      });
+      if (end) {
+        const s = BUILDINGS[end.type].size;
+        const last = path[path.length - 1]!;
+        gfx.lineTo((last.x + 0.5 + DX[last.dir] * 0.5) * TILE, (last.y + 0.5 + DY[last.dir] * 0.5) * TILE);
+        gfx.strokePath();
+        gfx.lineStyle(4, 0x8ee05a, pulse + 0.2).strokeRoundedRect(end.x * TILE + 2, end.y * TILE + 2, s * TILE - 4, s * TILE - 4, 10);
+      } else {
+        gfx.strokePath();
+        // Dead end: red cross where the belt leads nowhere.
+        const x = (endX + 0.5) * TILE;
+        const y = (endY + 0.5) * TILE;
+        gfx.lineStyle(6, 0xff5a3a, 0.9);
+        gfx.lineBetween(x - 12, y - 12, x + 12, y + 12);
+        gfx.lineBetween(x - 12, y + 12, x + 12, y - 12);
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------- tutorial guide
+
+  private updateGuide() {
+    const g = ctl.game;
+    const step = ctl.started ? guideStep(g) : null;
+    this.guide = step;
+    this.guideGfx.clear();
+    ctl.guideType = step?.type ?? null;
+    if (!step) { this.guideArrow.setVisible(false); this.guideText.setVisible(false); this.guideKey = ''; return; }
+    const s = BUILDINGS[step.type].size;
+    const x = step.x * TILE;
+    const y = step.y * TILE;
+    const t = this.time.now;
+    const pulse = 0.5 + Math.sin(t / 220) * 0.3;
+    this.guideGfx.fillStyle(0xffe36a, 0.18 + pulse * 0.15).fillRoundedRect(x + 3, y + 3, s * TILE - 6, s * TILE - 6, 10);
+    this.guideGfx.lineStyle(4, 0xffe36a, 0.6 + pulse * 0.4).strokeRoundedRect(x + 3, y + 3, s * TILE - 6, s * TILE - 6, 10);
+    if (step.type === 'belt' || step.rotate) this.portArrow(this.guideGfx, x + s * TILE / 2, y + s * TILE / 2, step.dir, 0xffe36a, 14);
+    const bob = Math.sin(t / 160) * 8;
+    this.guideArrow.setVisible(true).setPosition(x + s * TILE / 2, y - 26 + bob);
+    const key = BUILDINGS[step.type].hotkey;
+    const label = step.rotate ? step.label : ctl.tool === step.type ? `${step.label}: кликни` : `${step.label}: нажми ${key}`;
+    this.guideText.setVisible(true).setText(label).setPosition(x + s * TILE / 2, y - 50 + bob);
+    // Help with direction: when placing the guided belt, use the guided direction.
+    if (ctl.tool === step.type && ctl.hover && ctl.hover.x === step.x && ctl.hover.y === step.y && !this.dragging) ctl.dir = step.dir;
+    // Bring the target into view once per step.
+    const k = `${step.type}${step.x},${step.y}`;
+    if (k !== this.guideKey) {
+      this.guideKey = k;
+      const view = this.cameras.main.worldView;
+      const cx = x + s * TILE / 2;
+      const cy = y + s * TILE / 2;
+      if (cx < view.x + 340 || cx > view.right - 360 || cy < view.y + 80 || cy > view.bottom - 140) this.cameras.main.pan(cx, cy, 600, 'Sine.easeInOut');
+    }
   }
 
   /** Make views match the sim (by id). */
@@ -554,6 +711,7 @@ export class WorldScene extends Phaser.Scene {
     }
     this.refreshBelts();
     for (const v of this.views.values()) if (v.b.type === 'splitter') v.body.setAngle(ANGLE[v.b.dir]!);
+    this.drawPorts();
     // Flowers under buildings are trampled (hidden); they come back when the building is removed.
     const g = ctl.game;
     for (const [i, imgs] of this.decoByIdx) {
@@ -678,6 +836,8 @@ export class WorldScene extends Phaser.Scene {
     this.animateBelts(dt);
     this.updateViews(dt / 1000);
     this.updateGhost();
+    this.updateGuide();
+    this.updateChain();
     this.updateSelection();
     this.updateDayNight();
     this.updateButterflies(dt / 1000);

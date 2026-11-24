@@ -287,3 +287,7 @@ body.playing #minimap { opacity: 1; }
 .peace { display: flex; align-items: center; gap: 8px; margin-top: 14px; font-weight: 700; font-size: 14px; text-shadow: 0 1px 4px #000; cursor: pointer; }
 .peace input { width: 18px; height: 18px; accent-color: var(--gold); }
 @media (max-width: 1280px) { #minimap { width: 126px; height: 90px; } }
+
+.slot.guide { border-color: var(--gold); animation: guide 0.9s ease-in-out infinite; }
+.slot.guide::after { content: '▼'; position: absolute; top: -22px; left: 50%; transform: translateX(-50%); color: var(--gold); font-size: 16px; text-shadow: 0 2px 0 #000; animation: bob 0.9s ease-in-out infinite; }
+@keyframes guide { 50% { box-shadow: 0 0 0 3px rgba(255, 207, 74, 0.6), 0 0 22px rgba(255, 207, 74, 0.7); transform: translateY(-3px); } }
