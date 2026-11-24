@@ -1,20 +1,41 @@
 import Phaser from 'phaser';
-import { createArt } from './art';
-import { WORLD_GRID } from './config/game';
-import { createSimulation } from './core';
-import { createHud } from './ui';
-import { FactoryScene } from './world/FactoryScene';
+import { ctl } from './game/controller';
+import { createUi } from './game/ui';
+import { WorldScene } from './game/WorldScene';
 import './style.css';
 
-const simulation = createSimulation(WORLD_GRID);
-const hud = createHud(document.querySelector<HTMLParagraphElement>('#hud')!);
-const scene = new FactoryScene(simulation, createArt(), hud);
+const scene = new WorldScene();
 
-new Phaser.Game({
-  type: Phaser.AUTO,
+const game = new Phaser.Game({
+  type: Phaser.WEBGL,
   parent: 'game',
-  width: 768,
-  height: 480,
-  scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+  backgroundColor: '#1d3a22',
+  scale: { mode: Phaser.Scale.RESIZE, width: window.innerWidth, height: window.innerHeight },
+  render: { antialias: true, roundPixels: false, powerPreference: 'high-performance' },
   scene,
 });
+
+(window as unknown as { __problem: (b: never) => string | null }).__problem = (b) => scene.problemOf(b);
+(window as unknown as { __scene: WorldScene }).__scene = scene;
+
+function start() {
+  ctl.started = true;
+  document.body.classList.add('playing');
+}
+
+const ui = createUi(
+  () => {
+    ctl.reset();
+    scene.resetWorld();
+    start();
+    ctl.save();
+  },
+  () => {
+    if (ctl.load()) scene.resetWorld();
+    start();
+  },
+  (x, y) => scene.focusOn(x, y),
+);
+
+game.events.on(Phaser.Core.Events.POST_STEP, () => ui.update());
+window.addEventListener('beforeunload', () => ctl.save());
