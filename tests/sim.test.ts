@@ -89,8 +89,8 @@ test('breeding forest x meadow eventually yields common', () => {
   must(g, 'breeder', p.x, p.y);
   const br = g.at(p.x, p.y)!;
   for (let i = 0; i < 12; i++) {
-    br.inv.honey = 16;
-    run(g, 19);
+    br.inv.honey = 20;
+    run(g, 31);
   }
   assert.ok(g.state.discovered.includes('common'), `discovered ${g.state.discovered}`);
 });

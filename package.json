@@ -10,7 +10,8 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "test": "for t in sim combat guide; do esbuild tests/$t.test.ts --bundle --platform=node --format=esm --outfile=.tmp/$t.test.mjs --log-level=warning && node .tmp/$t.test.mjs || exit 1; done"
+    "test": "for t in sim combat guide balance; do esbuild tests/$t.test.ts --bundle --platform=node --format=esm --outfile=.tmp/$t.test.mjs --log-level=warning && node .tmp/$t.test.mjs || exit 1; done",
+    "balance": "esbuild tools/balance.ts --bundle --platform=node --format=esm --outfile=.tmp/balance.mjs --log-level=warning && node .tmp/balance.mjs"
   },
   "dependencies": {
     "phaser": "3.90.0"

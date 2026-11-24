@@ -951,9 +951,10 @@ export class Game {
     let best: Building | undefined;
     let bd = Infinity;
     for (const pass of [true, false]) {
+      if (!pass && e.kind === 'bear') break; // bears only want honey
       for (const b of this.state.buildings) {
         if (pass && b.type !== 'hive') continue;
-        if (!pass && BUILDINGS[b.type].behaviour === 'belt') continue;
+        if (!pass && (BUILDINGS[b.type].behaviour === 'belt' || BUILDINGS[b.type].behaviour === 'wall')) continue;
         const s = BUILDINGS[b.type].size;
         const d = Math.hypot(b.x + s / 2 - e.x, b.y + s / 2 - e.y);
         if (d < bd) { bd = d; best = b; }
@@ -990,6 +991,7 @@ export class Game {
         continue;
       }
       let target = this.byId.get(e.target);
+      if (!target && e.target) { e.flee = true; continue; } // target destroyed: fed, go home
       if (!target) {
         target = this.nearestTarget(e);
         if (!target) { e.flee = true; continue; }
@@ -1060,6 +1062,9 @@ export class Game {
   private checkQuests() {
     const st = this.state;
     while (st.quest < QUESTS.length) {
+      // Peaceful mode has no enemies: skip the defence quests.
+      const c = QUESTS[st.quest]!.check;
+      if (st.peaceful && (c.kind === 'nests' || (c.kind === 'build' && c.building === 'smoker'))) { st.quest++; continue; }
       const [have, need] = this.questProgress(st.quest);
       if (have < need) break;
       const reward = QUESTS[st.quest]!.reward;

@@ -104,7 +104,7 @@ export const MUTATIONS: readonly Mutation[] = [
 ];
 
 /** Each pollen in the breeder multiplies mutation chance (consumed per cycle, max POLLEN_MAX). */
-export const BREED = { honeyPerCycle: 8, seconds: 18, pollenBoost: 0.35, pollenMax: 3 };
+export const BREED = { honeyPerCycle: 10, seconds: 30, pollenBoost: 0.35, pollenMax: 3 };
 
 // ---------------------------------------------------------------- buildings
 
