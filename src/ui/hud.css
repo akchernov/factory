@@ -1,0 +1,36 @@
+.factory-hud-resources {
+  display: block;
+  font-variant-numeric: tabular-nums;
+}
+
+.factory-hotbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-block-start: 0.5rem;
+}
+
+.factory-hotbar button {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #72846e;
+  border-radius: 0.375rem;
+  background: #26392b;
+  color: #fff4d1;
+  font: inherit;
+  cursor: pointer;
+}
+
+.factory-hotbar button[aria-pressed='true'] {
+  border-color: #ffd264;
+  background: #ffd264;
+  color: #18241b;
+}
+
+.factory-hotbar button:focus-visible {
+  outline: 2px solid #fff4d1;
+  outline-offset: 2px;
+}
+
+.factory-hotbar kbd {
+  font-weight: 700;
+}
