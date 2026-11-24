@@ -2,3 +2,4 @@ node_modules/
 dist/
 *.local
 .tmp/
+node_modules

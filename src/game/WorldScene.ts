@@ -207,8 +207,8 @@ export class WorldScene extends Phaser.Scene {
     // Player (beekeeper) for life and scale; walks with WASD.
     const s = g.map.start;
     this.player = this.add.container((s.x - 2) * TILE, (s.y + 2) * TILE).setDepth(0);
-    this.player.add(this.add.image(0, 18, 'shadow').setScale(0.45));
-    this.playerImg = this.add.image(0, 0, 'p_down').setScale(0.24).setOrigin(0.5, 0.85);
+    this.player.add(this.add.image(0, 8, 'shadow').setScale(0.75, 0.8));
+    this.playerImg = this.add.image(0, 0, 'p_down').setScale(0.42).setOrigin(0.5, 0.85);
     this.player.add(this.playerImg);
 
     // Ghost preview for placement.
