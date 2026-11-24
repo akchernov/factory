@@ -24,8 +24,8 @@ function start() {
 }
 
 const ui = createUi(
-  (peaceful) => {
-    ctl.reset(peaceful);
+  (peaceful, mode) => {
+    ctl.reset(peaceful, mode);
     scene.resetWorld();
     start();
     ctl.save();

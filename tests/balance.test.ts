@@ -19,3 +19,11 @@ test('peaceful mode is winnable and skips defence quests', () => {
   const r = play(11, 20, { defend: false, lazy: false }, true);
   assert.ok(r.won, `quest ${r.quest}`);
 });
+
+test('short demo game is won in 5-15 minutes', () => {
+  for (const seed of [7, 999]) {
+    const r = play(seed, 6, { defend: true, lazy: false }, false, 'short');
+    assert.ok(r.won, `seed ${seed}: quest ${r.quest}`);
+    assert.ok(r.minutes >= 5 && r.minutes <= 15, `seed ${seed}: ${r.minutes} min`);
+  }
+});

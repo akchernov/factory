@@ -91,6 +91,9 @@ body.playing #quest { opacity: 1; transform: none; }
 
 #research { position: absolute; left: 10px; top: 250px; width: 300px; padding: 10px 12px; cursor: pointer; opacity: 0; transition: 0.5s 0.2s; }
 body.playing #research { opacity: 1; }
+.r-row i { font-style: normal; color: var(--good); }
+.r-row i.bad, .r-row b.bad { color: var(--bad); }
+.big small { font-size: 12px; opacity: 0.75; font-weight: 800; margin-left: 4px; }
 #research.idle { border-color: var(--bad); animation: pulse 1.2s infinite; }
 .r-row { display: flex; gap: 10px; align-items: center; }
 .r-row > div { flex: 1; }

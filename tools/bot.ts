@@ -163,7 +163,7 @@ export class Bot {
   }
 
   private planComplete() {
-    return this.plan.every((s) => this.g.at(s.x, s.y)?.type === s.type);
+    return this.plan.every((s) => { const b = this.g.at(s.x, s.y); return !!b && (b.type === s.type || (s.type === 'belt' && BUILDINGS[b.type].behaviour === 'belt')); });
   }
 
   tick() {
@@ -171,8 +171,15 @@ export class Bot {
     const st = g.state;
 
     // 1. Build or rebuild everything in the plan, in order, while money lasts.
+    const beltTier: BuildingId = g.isUnlocked('belt3') ? 'belt3' : g.isUnlocked('belt2') ? 'belt2' : 'belt';
     for (const s of this.plan) {
       const b = g.at(s.x, s.y);
+      if (s.type === 'belt' || s.type === 'belt2' || s.type === 'belt3') {
+        // Upgrade belts as soon as faster ones are researched.
+        if (b && b.type !== beltTier && st.money > BUILDINGS[beltTier].cost + 200) { g.remove(s.x, s.y); g.place(beltTier, s.x, s.y, s.dir); }
+        if (!b && st.money >= BUILDINGS[beltTier].cost) g.place(beltTier, s.x, s.y, s.dir);
+        continue;
+      }
       if (b) continue;
       if (!g.isUnlocked(s.type)) continue;
       const needQueen = s.type === 'hive' && !g.bestQueen();
@@ -243,8 +250,8 @@ export interface Run {
   notes: string[];
 }
 
-export function play(seed: number, maxDays = 30, opts: BotOptions = { defend: true, lazy: false }, peaceful = false): Run {
-  const g = new Game(newGame(seed, peaceful));
+export function play(seed: number, maxDays = 30, opts: BotOptions = { defend: true, lazy: false }, peaceful = false, mode: 'short' | 'full' = 'full'): Run {
+  const g = new Game(newGame(seed, peaceful, mode));
   const bot = new Bot(g, opts);
   const marks: Record<string, number> = {};
   const mark = (k: string) => { if (!(k in marks)) marks[k] = +((g.state.time - DAY_SECONDS * 0.08) / 60).toFixed(1); };

@@ -461,10 +461,12 @@ export class WorldScene extends Phaser.Scene {
       const entryEdge = side === 1 ? (exit + 1) % 4 : (exit + 3) % 4; // edge item comes in from
       const edges = new Set([exit, entryEdge]);
       // edge ids: 0=E,1=S,2=W,3=N
-      const pairs: [number, number, number][] = [[2, 3, 0], [3, 0, 90], [0, 1, 180], [1, 2, 270]];
+      // Base curve art connects the S and E edges; Phaser angles are clockwise.
+      const pairs: [number, number, number][] = [[0, 1, 0], [1, 2, 90], [2, 3, 180], [3, 0, 270]];
       for (const [a, c, ang] of pairs) if (edges.has(a) && edges.has(c)) spr.setAngle(ang);
       // Direction of travel along the arc is handled by animation direction.
-      const ccw = (exit + 1) % 4 === entryEdge; // travel turns left
+      // Base animation runs S -> E, i.e. entry = exit + 1. Otherwise play it backwards.
+      const ccw = entryEdge !== (exit + 1) % 4;
       v.root.setData('reverse', ccw);
     }
     v.curve = curve;
@@ -901,11 +903,11 @@ export class WorldScene extends Phaser.Scene {
 
   private animateBelts(dtMs: number) {
     // Frame advance matching item speed: 16 frames = 16px slat period; belt moves speed tiles/s * 64px.
-    this.beltFrame = (this.beltFrame + (dtMs / 1000) * 1.6 * TILE / 16 * BELT_FRAMES / BELT_FRAMES * (ctl.paused || !ctl.started ? 0 : ctl.speed)) % BELT_FRAMES;
+    this.beltFrame = (this.beltFrame + (dtMs / 1000) * BUILDINGS.belt.speed! * TILE / 16 * BELT_FRAMES / BELT_FRAMES * (ctl.paused || !ctl.started ? 0 : ctl.speed)) % BELT_FRAMES;
     const f = Math.floor(this.beltFrame);
     for (const v of this.views.values()) {
       if (!BELT_TYPES.has(v.b.type)) continue;
-      const mult = BUILDINGS[v.b.type].speed! / 1.6;
+      const mult = BUILDINGS[v.b.type].speed! / BUILDINGS.belt.speed!;
       const ff = Math.floor((this.beltFrame * mult) % BELT_FRAMES);
       const frame = v.curve && v.root.getData('reverse') ? (BELT_FRAMES - 1 - ff) : ff;
       (v.body as Phaser.GameObjects.Sprite).setFrame(v.curve ? frame : f === f ? ff : 0);

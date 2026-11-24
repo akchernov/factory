@@ -1,9 +1,9 @@
 import {
   BELT_GAP, BREED, BUILDINGS, DAY_SECONDS, FLOWERS, FLOWER_IDS, HIVE, ITEMS, ITEM_IDS, LAB_SECONDS_PER_ITEM,
   MACHINE_OUTPUT_CAP, MARKET, MONUMENT_NEEDS, MUTATIONS, NIGHT_SHARE, PREFERRED_BONUS, QUESTS, REFUND, SPECIES,
-  SPECIES_IDS, START_MONEY, START_UNLOCKED, TECHS, TECH_IDS, WILD_SPECIES,
+  SPECIES_IDS, START_MONEY, START_UNLOCKED, TECHS, TECH_IDS, WILD_SPECIES, QUESTS_SHORT, SHORT_TECH_COST,
   ENEMIES, NEST, RAIDS, REGEN, SMOKER,
-  type BuildingId, type EnemyKind, type ItemId, type SpeciesId, type TechId,
+  type BuildingId, type EnemyKind, type GameMode, type ItemId, type QuestDef, type SpeciesId, type TechId,
 } from './data';
 import { Terrain, generateMap, type MapData } from './map';
 import { nextRandom } from './rng';
@@ -48,6 +48,8 @@ export interface Enemy {
   flee: boolean;
   /** Building currently being chewed (fence in the way, or the target). */
   biting: number;
+  /** Hives destroyed by this enemy; bears leave when full. */
+  ate?: number;
 }
 
 export interface Nest { id: number; x: number; y: number; hp: number }
@@ -62,7 +64,7 @@ export interface Stats {
 }
 
 export interface GameState {
-  version: 3;
+  version: 4;
   seed: number;
   rng: number;
   time: number;
@@ -88,6 +90,7 @@ export interface GameState {
   /** Last day a raid of this kind spawned. */
   raided: { bear: number; hornet: number };
   peaceful: boolean;
+  mode: GameMode;
 }
 
 export type GameEvent =
@@ -121,6 +124,7 @@ export const FAIL_TEXT: Record<Fail, string> = {
 };
 
 const OK: Result = { ok: true };
+const BEAR_APPETITE = 3;
 const fail = (reason: Fail): Result => ({ ok: false, reason });
 
 export const QUEEN_PRICE = 30;
@@ -134,9 +138,9 @@ function count(inv: Inv, item: ItemId) {
   return inv[item] ?? 0;
 }
 
-export function newGame(seed = 20261124, peaceful = false): GameState {
+export function newGame(seed = 20261124, peaceful = false, mode: GameMode = 'full'): GameState {
   return {
-    version: 3,
+    version: 4,
     seed,
     rng: seed,
     time: DAY_SECONDS * 0.08,
@@ -161,6 +165,7 @@ export function newGame(seed = 20261124, peaceful = false): GameState {
     threat: 0,
     raided: { bear: 1, hornet: 1 },
     peaceful,
+    mode,
   };
 }
 
@@ -568,13 +573,13 @@ export class Game {
   researchNeed(item: ItemId): number {
     const t = this.state.research;
     if (!t) return 0;
-    const need = TECHS[t].cost[item] ?? 0;
+    const need = this.techCost(t)[item] ?? 0;
     const have = this.state.researchProgress[t]?.[item] ?? 0;
     return Math.max(0, need - have);
   }
 
   researchFraction(t: TechId): number {
-    const cost = TECHS[t].cost;
+    const cost = this.techCost(t);
     let need = 0;
     let have = 0;
     for (const [k, v] of Object.entries(cost)) {
@@ -744,7 +749,7 @@ export class Game {
     b.working = false;
     if (!t) return;
     // Rare items come straight from the barn.
-    for (const [k, v] of Object.entries(TECHS[t].cost)) {
+    for (const [k, v] of Object.entries(this.techCost(t))) {
       const item = k as ItemId;
       if (!v) continue;
       if ((item === 'propolis' || item === 'jelly' || item === 'pollen') && count(b.inv, item) < 1 && this.researchNeed(item) > count(b.inv, item) && count(this.state.barn, item) > 0) {
@@ -761,7 +766,7 @@ export class Game {
     add(b.inv, item, -1);
     const prog = (this.state.researchProgress[t] ??= {});
     add(prog, item, 1);
-    if (TECH_IDS.includes(t) && Object.entries(TECHS[t].cost).every(([k, v]) => (prog[k as ItemId] ?? 0) >= (v ?? 0))) {
+    if (TECH_IDS.includes(t) && Object.entries(this.techCost(t)).every(([k, v]) => (prog[k as ItemId] ?? 0) >= (v ?? 0))) {
       this.state.techs.push(t);
       this.state.research = null;
       // Labs return leftovers to the barn.
@@ -890,7 +895,7 @@ export class Game {
   /** Raid sizes grow with threat (comb produced), like pollution-driven attacks in Factorio. */
   raidSize(kind: EnemyKind): number {
     const th = this.state.threat;
-    if (kind === 'bear') return Math.min(RAIDS.maxBears, 1 + Math.floor(th / 40));
+    if (kind === 'bear') return Math.min(RAIDS.maxBears, 1 + Math.floor(th / 30) + Math.floor((th / 120) ** 2));
     const alive = (this.state.nests ?? []).filter((n) => n.hp > 0).length;
     if (!alive) return 0;
     return Math.min(RAIDS.maxHornets, 2 + Math.floor(th / 18));
@@ -970,7 +975,7 @@ export class Game {
     if (Math.round(this.state.time * 10) % 5 === 0) this.events.push({ t: 'hit', id: b.id });
     if (b.hp > 0) return;
     this.state.buildings = this.state.buildings.filter((o) => o !== b);
-    if (b.species) this.state.queens[b.species] = (this.state.queens[b.species] ?? 0) + 1; // the queen escapes
+    // A hive torn down by enemies loses its queen: raids have a real cost.
     this.state.stats.lost++;
     this.rebuild();
     this.events.push({ t: 'destroyed', type: b.type, x: b.x, y: b.y });
@@ -991,7 +996,12 @@ export class Game {
         continue;
       }
       let target = this.byId.get(e.target);
-      if (!target && e.target) { e.flee = true; continue; } // target destroyed: fed, go home
+      if (!target && e.target) {
+        // Target destroyed. Bears go on to the next hive until they are full, hornets go home.
+        e.ate = (e.ate ?? 0) + 1;
+        if (e.kind !== 'bear' || e.ate >= BEAR_APPETITE) { e.flee = true; continue; }
+        e.target = 0;
+      }
       if (!target) {
         target = this.nearestTarget(e);
         if (!target) { e.flee = true; continue; }
@@ -1033,8 +1043,22 @@ export class Game {
 
   // ------------------------------------------------------------ quests
 
+  /** Quest list for this game mode. */
+  quests(): readonly QuestDef[] {
+    return this.state.mode === 'short' ? QUESTS_SHORT : QUESTS;
+  }
+
+  /** Research cost for this game mode. */
+  techCost(t: TechId): Inv {
+    const base = TECHS[t].cost;
+    if (this.state.mode !== 'short') return base;
+    const out: Inv = {};
+    for (const [k, v] of Object.entries(base)) out[k as ItemId] = Math.max(1, Math.round((v ?? 0) * SHORT_TECH_COST));
+    return out;
+  }
+
   questProgress(i: number): [number, number] {
-    const q = QUESTS[i];
+    const q = this.quests()[i];
     if (!q) return [1, 1];
     const c = q.check;
     const st = this.state;
@@ -1061,17 +1085,18 @@ export class Game {
 
   private checkQuests() {
     const st = this.state;
-    while (st.quest < QUESTS.length) {
+    const quests = this.quests();
+    while (st.quest < quests.length) {
       // Peaceful mode has no enemies: skip the defence quests.
-      const c = QUESTS[st.quest]!.check;
+      const c = quests[st.quest]!.check;
       if (st.peaceful && (c.kind === 'nests' || (c.kind === 'build' && c.building === 'smoker'))) { st.quest++; continue; }
       const [have, need] = this.questProgress(st.quest);
       if (have < need) break;
-      const reward = QUESTS[st.quest]!.reward;
+      const reward = quests[st.quest]!.reward;
       st.money += reward;
       this.events.push({ t: 'quest', index: st.quest, reward });
       st.quest++;
-      if (st.quest === QUESTS.length && !st.won) {
+      if (st.quest === quests.length && !st.won) {
         st.won = true;
         st.wonAt = st.time;
         this.events.push({ t: 'won' });

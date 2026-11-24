@@ -1,6 +1,6 @@
 import {
-  BREED, BUILDINGS, HOTBAR, ITEMS, MONUMENT_NEEDS, MUTATIONS, QUESTS, SPECIES, SPECIES_IDS, TECHS, TECH_IDS, WILD_SPECIES,
-  DAY_SECONDS, type BuildingId, type ItemId, type SpeciesId, type TechId,
+  BREED, BUILDINGS, HOTBAR, ITEMS, MONUMENT_NEEDS, MUTATIONS, SPECIES, SPECIES_IDS, TECHS, TECH_IDS, WILD_SPECIES,
+  DAY_SECONDS, type BuildingId, type GameMode, type ItemId, type SpeciesId, type TechId,
 } from '../core/data';
 import { FAIL_TEXT, QUEEN_PRICE, type GameEvent } from '../core/sim';
 import { audio } from './audio';
@@ -24,7 +24,7 @@ export interface Ui {
   update(): void;
 }
 
-export function createUi(onNewGame: (peaceful: boolean) => void, onContinue: () => void, focus: (x: number, y: number) => void): Ui {
+export function createUi(onNewGame: (peaceful: boolean, mode: GameMode) => void, onContinue: () => void, focus: (x: number, y: number) => void): Ui {
   const root = $('#ui');
   root.innerHTML = `
     <div id="topbar">
@@ -63,7 +63,7 @@ export function createUi(onNewGame: (peaceful: boolean) => void, onContinue: () 
     <div id="hotbar">
       <div id="tooltip" class="panel hidden"></div>
       <div id="slots"></div>
-      <div class="hint" id="hint">ЛКМ ставить · тяни конвейер мышью · R повернуть · ПКМ снести · <b style="color:#8ee05a">▶</b> вход <b style="color:#ffc23d">▶</b> выход · наведи на здание: куда идёт продукция</div>
+      <div class="hint" id="hint">ЛКМ ставить · тяни конвейер мышью · R/К повернуть · ПКМ снести · <b style="color:#8ee05a">▶</b> вход <b style="color:#ffc23d">▶</b> выход · наведи на здание: куда идёт продукция</div>
     </div>
 
     <div id="toasts"></div>
@@ -77,7 +77,8 @@ export function createUi(onNewGame: (peaceful: boolean) => void, onContinue: () 
         <p class="tagline">Построй медовую империю: ульи, конвейеры, станки, наука и селекция пчёл.</p>
         <div class="title-btns">
           <button class="big primary" id="btnContinue">Продолжить</button>
-          <button class="big" id="btnNew">Новая игра</button>
+          <button class="big" id="btnShort" title="8 заданий, примерно 10 минут">Быстрая партия <small>~10 мин</small></button>
+          <button class="big" id="btnNew" title="14 заданий: селекция, медовуха, Великий улей">Полная игра <small>~45 мин</small></button>
         </div>
         <label class="peace"><input type="checkbox" id="peaceful"> Мирный режим (без медведей и шершней)</label>
         <ul class="features">
@@ -159,19 +160,28 @@ export function createUi(onNewGame: (peaceful: boolean) => void, onContinue: () 
   const cont = $<HTMLButtonElement>('#btnContinue');
   if (!ctl.hasSave()) cont.style.display = 'none';
   cont.onclick = () => { audio.start(); onContinue(); title.classList.add('gone'); };
-  $('#btnNew').onclick = () => {
+  const startNew = (mode: GameMode) => {
     audio.start();
     if (ctl.hasSave() && !confirm('Начать заново? Сохранение будет перезаписано.')) return;
-    onNewGame($<HTMLInputElement>('#peaceful').checked);
+    onNewGame($<HTMLInputElement>('#peaceful').checked, mode);
     title.classList.add('gone');
     setTimeout(() => openIntro(), 500);
   };
+  $('#btnNew').onclick = () => startNew('full');
+  $('#btnShort').onclick = () => startNew('short');
 
   // ------------------------------------------------------------ keyboard
+  /** Russian layout letters -> the latin key on the same physical key (R = К, T = Е, ...). */
+  const RU = 'йцукенгшщзхъфывапролджэячсмитьбю';
+  const EN = "qwertyuiop[]asdfghjkl;'zxcvbnm,.";
+  const latin = (k: string) => {
+    const i = RU.indexOf(k);
+    return i >= 0 ? EN[i]! : k;
+  };
   window.addEventListener('keydown', (e) => {
     if (!ctl.started) return;
     if ((e.target as HTMLElement | null)?.closest?.('input,textarea,select')) return;
-    const k = e.key.toLowerCase();
+    const k = latin(e.key.toLowerCase());
     if (k === 'escape') {
       if (!$('#modal').classList.contains('hidden')) closeModal();
       else if (ctl.tool) ctl.setTool(null);
@@ -190,7 +200,7 @@ export function createUi(onNewGame: (peaceful: boolean) => void, onContinue: () 
       return;
     }
     if (k === 't') { openTech(); return; }
-    if (k === 'p' || k === 'з') { openStats(); return; }
+    if (k === 'p') { openStats(); return; }
     if (k === 'b') { openBees(); return; }
     if (k === 'm') { audio.setMuted(!audio.isMuted()); syncMute(); return; }
     if (k === 'delete' && ctl.selected) {
@@ -221,7 +231,7 @@ export function createUi(onNewGame: (peaceful: boolean) => void, onContinue: () 
         if (!$('#modal').classList.contains('hidden') && modalKind === 'tech') openTech();
         break;
       case 'quest': {
-        const q = QUESTS[e.index]!;
+        const q = ctl.game.quests()[e.index]!;
         toast(`Задание выполнено: ${q.title}${e.reward ? ` · +${e.reward} 🪙` : ''}`, 'good', 'i_coin');
         questFlash = 1;
         confetti(60);
@@ -441,7 +451,7 @@ export function createUi(onNewGame: (peaceful: boolean) => void, onContinue: () 
     $('#mNew').onclick = () => {
       if (!confirm('Точно начать заново?')) return;
       closeModal();
-      onNewGame(ctl.game.state.peaceful);
+      onNewGame(ctl.game.state.peaceful, ctl.game.state.mode);
       setTimeout(openIntro, 400);
     };
   }
@@ -783,6 +793,50 @@ export function createUi(onNewGame: (peaceful: boolean) => void, onContinue: () 
     focus(((e.clientX - r.left) / r.width) * g.w, ((e.clientY - r.top) / r.height) * g.h);
   });
 
+  // Research inflow per item, sampled every ~6 game seconds.
+  const rSamples: { t: number; tech: TechId; prog: Partial<Record<ItemId, number>> }[] = [];
+  function researchHint(r: TechId): string {
+    const g = ctl.game;
+    const st = g.state;
+    const prog = st.researchProgress[r] ?? {};
+    const last = rSamples[rSamples.length - 1];
+    if (!last || last.tech !== r || st.time < last.t) rSamples.length = 0;
+    if (!rSamples.length || st.time - rSamples[rSamples.length - 1]!.t > 6) {
+      rSamples.push({ t: st.time, tech: r, prog: { ...prog } });
+      if (rSamples.length > 12) rSamples.shift();
+    }
+    const first = rSamples[0]!;
+    const span = st.time - first.t;
+    const hasLab = st.buildings.some((b) => b.type === 'lab');
+    const parts: string[] = [];
+    let worst = 0;
+    let worstItem: ItemId | null = null;
+    for (const [k, v] of Object.entries(g.techCost(r))) {
+      const item = k as ItemId;
+      const have = prog[item] ?? 0;
+      const need = v ?? 0;
+      const left = need - have;
+      const rate = span > 20 ? ((have - (first.prog[item] ?? 0)) / span) * 60 : NaN;
+      let eta = '';
+      if (left <= 0) eta = ' ✓';
+      else if (Number.isFinite(rate) && rate > 0) {
+        const mins = left / rate;
+        eta = ` <i>${rate.toFixed(1)}/мин</i>`;
+        if (mins > worst) { worst = mins; worstItem = item; }
+      } else if (span > 20) {
+        eta = ' <i class="bad">не поступает</i>';
+        worst = Infinity;
+        worstItem = item;
+      }
+      parts.push(`${ITEMS[item].name} ${have}/${need}${eta}`);
+    }
+    let tail = '';
+    if (!hasLab) tail = '<br><b class="bad">Нужна лаборатория (6)</b>';
+    else if (worstItem && worst === Infinity) tail = `<br><b class="bad">Подай ${ITEMS[worstItem].name.toLowerCase()} в лабораторию конвейером</b>`;
+    else if (worstItem && worst > 0) tail = `<br>Осталось ~${worst < 1 ? '<1' : Math.ceil(worst)} мин${worst > 6 ? `: добавь линию «${ITEMS[worstItem].name.toLowerCase()}»` : ''}`;
+    return parts.join(' · ') + tail;
+  }
+
   let tick = 0;
   let shownMoney = 0;
   return {
@@ -820,11 +874,11 @@ export function createUi(onNewGame: (peaceful: boolean) => void, onContinue: () 
 
       // quest
       const qi = st.quest;
-      const qd = QUESTS[qi];
+      const qd = ctl.game.quests()[qi];
       const qEl = $('#quest');
       if (qd) {
         const [have, need] = g.questProgress(qi);
-        $('#qnum').textContent = `${qi + 1}/${QUESTS.length}`;
+        $('#qnum').textContent = `${qi + 1}/${ctl.game.quests().length}`;
         $('#qtitle').textContent = qd.title;
         if ($('#qtext').textContent !== qd.text) $('#qtext').textContent = qd.text;
         $('#qreward').innerHTML = qd.reward ? `${icon('i_coin')}+${qd.reward}` : '';
@@ -841,8 +895,8 @@ export function createUi(onNewGame: (peaceful: boolean) => void, onContinue: () 
       const r = st.research;
       $('#rname').textContent = r ? TECHS[r].name : 'Выбери исследование';
       $('#rbar').style.width = r ? `${g.researchFraction(r) * 100}%` : '0';
-      const rn = r ? Object.entries(TECHS[r].cost).map(([k, v]) => `${ITEMS[k as ItemId].name} ${st.researchProgress[r]?.[k as ItemId] ?? 0}/${v}`).join(' · ') : 'Нажми T';
-      if ($('#rneed').textContent !== rn) $('#rneed').textContent = rn;
+      const rn = r ? researchHint(r) : 'Нажми T';
+      if ($('#rneed').innerHTML !== rn) $('#rneed').innerHTML = rn;
       $('#research').classList.toggle('idle', !r && st.buildings.some((b) => b.type === 'lab'));
       $('#research').style.display = st.quest >= 3 || st.techs.length || st.buildings.some((b) => b.type === 'lab') ? '' : 'none';
 

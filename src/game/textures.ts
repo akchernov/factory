@@ -63,6 +63,12 @@ function drawStraight(ctx: CanvasRenderingContext2D, ox: number, f: number, col:
   ctx.restore();
 }
 
+/**
+ * Curve tile: a quarter band that connects the middle of the SOUTH edge with the middle of the EAST edge
+ * (pivot = bottom-right corner, centre line radius = TILE/2). Same widths as the straight belt:
+ * belt band 12..52 px across the tile, rails 6..14 and 50..58.
+ * Animation frames move slats from the south edge towards the east edge.
+ */
 function drawCurve(ctx: CanvasRenderingContext2D, ox: number, f: number, col: [string, string, string, string]) {
   const [rail, belt, slat, accent] = col;
   ctx.save();
@@ -72,38 +78,55 @@ function drawCurve(ctx: CanvasRenderingContext2D, ox: number, f: number, col: [s
   ctx.clip();
   const cx = TILE;
   const cy = TILE;
-  const ring = (r0: number, r1: number, color: string) => {
+  // Quarter from angle PI (pointing west from the pivot = south edge side) to 1.5PI (north = east edge side).
+  const A0 = Math.PI;
+  const A1 = Math.PI * 1.5;
+  const band = (r0: number, r1: number, color: string) => {
     ctx.beginPath();
-    ctx.arc(cx, cy, r1, Math.PI, Math.PI * 1.5);
-    ctx.arc(cx, cy, r0, Math.PI * 1.5, Math.PI, true);
+    ctx.arc(cx, cy, r1, A0, A1);
+    ctx.arc(cx, cy, r0, A1, A0, true);
     ctx.closePath();
     ctx.fillStyle = color;
     ctx.fill();
   };
-  ring(12, 54, 'rgba(0,0,0,0.25)');
-  ring(12, 52, belt);
-  // slats as radial wedges
-  const steps = 6;
+  const toR = (straightY: number) => TILE - straightY; // straight belt y -> radius from the pivot
+  band(toR(58), toR(6), 'rgba(0,0,0,0.25)');
+  band(toR(52), toR(12), belt);
+  // Slats: radial bars evenly spaced along the centre line, shifted by frame.
+  const centreLen = (Math.PI / 2) * (TILE / 2);
+  const n = Math.round(centreLen / 16);
   const shift = f / BELT_FRAMES;
   ctx.fillStyle = slat;
-  for (let i = -1; i < steps + 1; i++) {
-    const a0 = Math.PI + ((i + shift) / steps) * Math.PI * 0.5;
-    const a1 = a0 + (Math.PI * 0.5) / steps * 0.45;
+  for (let i = -1; i <= n; i++) {
+    const t0 = (i + shift) / n;
+    const t1 = t0 + 7 / 16 / n;
+    const a0 = A0 + Math.max(0, Math.min(1, t0)) * (A1 - A0);
+    const a1 = A0 + Math.max(0, Math.min(1, t1)) * (A1 - A0);
+    if (a1 <= a0) continue;
     ctx.beginPath();
-    ctx.arc(cx, cy, 50, a0, a1);
-    ctx.arc(cx, cy, 14, a1, a0, true);
+    ctx.arc(cx, cy, toR(14), a0, a1);
+    ctx.arc(cx, cy, toR(50), a1, a0, true);
     ctx.closePath();
     ctx.fill();
   }
+  // Direction chevron on the centre line.
   ctx.globalAlpha = 0.35;
   ctx.strokeStyle = accent;
   ctx.lineWidth = 3;
+  const ca = A0 + ((0.5 + shift) % 1) * (A1 - A0);
+  const px = cx + Math.cos(ca) * TILE / 2;
+  const py = cy + Math.sin(ca) * TILE / 2;
+  const tx = -Math.sin(ca);
+  const ty = Math.cos(ca);
   ctx.beginPath();
-  ctx.arc(cx, cy, 32, Math.PI + 0.2, Math.PI * 1.5 - 0.2);
+  ctx.moveTo(px - tx * 4 + ty * 8, py - ty * 4 - tx * 8);
+  ctx.lineTo(px + tx * 4, py + ty * 4);
+  ctx.lineTo(px - tx * 4 - ty * 8, py - ty * 4 + tx * 8);
   ctx.stroke();
   ctx.globalAlpha = 1;
-  ring(50, 58, rail);
-  ring(6, 14, rail);
+  // Rails, outer (straight y 6..14) and inner (50..58).
+  band(toR(14), toR(6), rail);
+  band(toR(58), toR(50), rail);
   ctx.restore();
 }
 

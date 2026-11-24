@@ -138,7 +138,7 @@ export interface BuildingDef {
 }
 
 export const BUILDINGS: Readonly<Record<BuildingId, BuildingDef>> = {
-  belt: { name: 'Конвейер', sprite: 'belt', size: 1, cost: 2, behaviour: 'belt', speed: 1.6, hint: 'Везёт предметы. Тяни мышью линией, R поворачивает.', hotkey: '1', hp: 40 },
+  belt: { name: 'Конвейер', sprite: 'belt', size: 1, cost: 2, behaviour: 'belt', speed: 1.0, hint: 'Везёт 1.25 предмета в секунду. Тяни мышью линией, R (К) поворачивает.', hotkey: '1', hp: 40 },
   hive: { name: 'Улей', sprite: 'b_hive', size: 2, cost: 40, behaviour: 'hive', hint: 'Пчёлы собирают нектар с цветов в радиусе 4 и делают соты. Выход: на конвейер, идущий от улья.', hotkey: '2', hp: 220 },
   extractor: { name: 'Медогонка', sprite: 'b_extractor', size: 2, cost: 60, behaviour: 'machine', recipe: { inputs: { comb: 1 }, outputs: { honey: 2, wax: 1 }, seconds: 2.5 }, hint: 'Соты в мёд и воск.', hotkey: '3', hp: 260 },
   packer: { name: 'Фасовка', sprite: 'b_packer', size: 2, cost: 60, behaviour: 'machine', recipe: { inputs: { honey: 2 }, outputs: { jar: 1 }, seconds: 2 }, hint: 'Мёд в банки. Банки нужны для науки и продажи.', hotkey: '4', hp: 260 },
@@ -146,22 +146,22 @@ export const BUILDINGS: Readonly<Record<BuildingId, BuildingDef>> = {
   lab: { name: 'Лаборатория', sprite: 'b_lab', size: 2, cost: 100, behaviour: 'lab', hint: 'Тратит продукцию на исследования. Выбери технологию в дереве (T).', hotkey: '6', hp: 260 },
   chest: { name: 'Склад', sprite: 'b_chest', size: 1, cost: 15, behaviour: 'store', capacity: 60, hint: 'Буфер на 60 предметов: принимает и отдаёт дальше.', hotkey: '7', hp: 150 },
   splitter: { name: 'Развилка', sprite: 'splitter', size: 1, cost: 10, behaviour: 'store', capacity: 2, hint: 'Делит поток поровну между всеми конвейерами, идущими от неё.', hotkey: '8', hp: 60 },
-  chandlery: { name: 'Свечная', sprite: 'b_chandlery', size: 2, cost: 120, behaviour: 'machine', recipe: { inputs: { wax: 3 }, outputs: { candle: 1 }, seconds: 3 }, hint: 'Воск в свечи.', hotkey: '9', hp: 260 },
+  chandlery: { name: 'Свечная', sprite: 'b_chandlery', size: 2, cost: 120, behaviour: 'machine', recipe: { inputs: { wax: 2 }, outputs: { candle: 1 }, seconds: 3 }, hint: 'Воск в свечи.', hotkey: '9', hp: 260 },
   well: { name: 'Колодец', sprite: 'b_well', size: 2, cost: 60, behaviour: 'machine', recipe: { inputs: {}, outputs: { water: 1 }, seconds: 1.2 }, hint: 'Даёт воду для медоварни.', hotkey: '0', hp: 260 },
   brewery: { name: 'Медоварня', sprite: 'b_brewery', size: 2, cost: 220, behaviour: 'machine', recipe: { inputs: { honey: 4, water: 2 }, outputs: { mead: 1 }, seconds: 5 }, hint: 'Мёд и вода в медовуху.', hotkey: 'Q', hp: 300 },
   breeder: { name: 'Селекция', sprite: 'b_breeder', size: 2, cost: 250, behaviour: 'breeder', hint: 'Скрещивает пчёл. Ест мёд с конвейера, пыльца повышает шанс мутации.', hotkey: 'E', hp: 260 },
-  belt2: { name: 'Быстрый конвейер', sprite: 'belt2', size: 1, cost: 6, behaviour: 'belt', speed: 3.2, hint: 'Вдвое быстрее.', hotkey: 'Z', hp: 50 },
-  belt3: { name: 'Экспресс-конвейер', sprite: 'belt3', size: 1, cost: 15, behaviour: 'belt', speed: 4.8, hint: 'Втрое быстрее.', hotkey: 'C', hp: 60 },
+  belt2: { name: 'Быстрый конвейер', sprite: 'belt2', size: 1, cost: 6, behaviour: 'belt', speed: 2.0, hint: 'Вдвое быстрее: 2.5 предмета в секунду. Ставь прямо поверх обычного.', hotkey: 'Z', hp: 50 },
+  belt3: { name: 'Экспресс-конвейер', sprite: 'belt3', size: 1, cost: 15, behaviour: 'belt', speed: 3.0, hint: 'Втрое быстрее: 3.75 предмета в секунду.', hotkey: 'C', hp: 60 },
   smoker: { name: 'Дымарь', sprite: 'b_smoker', size: 2, cost: 90, behaviour: 'tower', hint: 'Оборонная башня. Отгоняет медведей и шершней дымом в радиусе 6. Топливо: воск (подавай конвейером, иначе берёт из сарая).', hotkey: 'G', hp: 320 },
   fence: { name: 'Забор', sprite: 'b_fence', size: 1, cost: 4, behaviour: 'wall', hint: 'Медведи не пройдут, пока не сломают. Шершни перелетают. Тяни мышью линией.', hotkey: 'F', hp: 360 },
-  monument: { name: 'Великий улей', sprite: 'b_monument', size: 3, cost: 1500, behaviour: 'monument', hint: 'Финальная цель. Наполни его и стань легендой.', hotkey: 'V', hp: 3000 },
+  monument: { name: 'Великий улей', sprite: 'b_monument', size: 3, cost: 6000, behaviour: 'monument', hint: 'Финальная цель. Наполни его и стань легендой.', hotkey: 'V', hp: 3000 },
 };
 export const BUILDING_IDS = Object.keys(BUILDINGS) as BuildingId[];
 export const HOTBAR: readonly BuildingId[] = ['belt', 'hive', 'extractor', 'packer', 'market', 'lab', 'chest', 'splitter', 'smoker', 'fence', 'chandlery', 'well', 'brewery', 'breeder', 'belt2', 'belt3', 'monument'];
 
 export const HIVE = { radius: 4, nightFactor: 0.35, buffer: 12 };
 export const MACHINE_OUTPUT_CAP = 12;
-export const BELT_GAP = 0.25;
+export const BELT_GAP = 0.8;
 export const LAB_SECONDS_PER_ITEM = 1.2;
 
 export const MONUMENT_NEEDS: Readonly<Partial<Record<ItemId, number>>> = { jar: 150, candle: 80, mead: 40, propolis: 20, jelly: 20 };
@@ -216,7 +216,7 @@ export interface EnemyDef {
 }
 
 export const ENEMIES: Readonly<Record<EnemyKind, EnemyDef>> = {
-  bear: { name: 'Медведь', sprite: 'e_bear', hp: 160, speed: 0.8, dps: 10, reward: 30, flying: false },
+  bear: { name: 'Медведь', sprite: 'e_bear', hp: 160, speed: 0.8, dps: 14, reward: 30, flying: false },
   hornet: { name: 'Шершень', sprite: 'e_hornet', hp: 24, speed: 2.1, dps: 4, reward: 4, flying: true },
 };
 
@@ -230,7 +230,7 @@ export const RAIDS = {
   hornetPhase: 0.36,
   /** Threat grows with every comb produced (like pollution in Factorio). */
   threatPerComb: 0.1,
-  maxBears: 8,
+  maxBears: 10,
   maxHornets: 12,
 };
 /** Buildings heal this share of max HP per second after REGEN_DELAY seconds without damage. */
@@ -277,6 +277,22 @@ export interface QuestDef {
   readonly check: QuestCheck;
   readonly reward: number;
 }
+
+export type GameMode = 'short' | 'full';
+
+/** Short demo game (~10 minutes): the first production chains and one research. */
+export const QUESTS_SHORT: readonly QuestDef[] = [
+  { title: 'Первая семья', text: 'Поставь улей (2) рядом с цветами. Следуй за жёлтой стрелкой.', check: { kind: 'build', building: 'hive', count: 1 }, reward: 20 },
+  { title: 'Медогонка', text: 'Протяни конвейер (1) ОТ улья к медогонке (3).', check: { kind: 'produced', item: 'honey', count: 4 }, reward: 30 },
+  { title: 'Первая банка', text: 'Мёд в фасовку (4), банки на рынок (5).', check: { kind: 'sold', item: 'jar', count: 1 }, reward: 50 },
+  { title: 'Оборона', text: 'Вечером придёт медведь. Поставь дымарь (G) рядом с ульем: он жжёт воск из сарая и с медогонки.', check: { kind: 'build', building: 'smoker', count: 1 }, reward: 40 },
+  { title: 'Второй улей', text: 'Поставь ещё один улей у цветов и проведи его соты в ту же медогонку или в новую.', check: { kind: 'build', building: 'hive', count: 2 }, reward: 60 },
+  { title: 'Наука', text: 'Построй лабораторию (6), в дереве (T) выбери «Свечное дело» и подай в неё банки конвейером.', check: { kind: 'tech', tech: 'chandlery' }, reward: 80 },
+  { title: 'Свечная лавка', text: 'Воск с медогонки отправь в свечную (9), свечи на рынок. Продай 8 свечей.', check: { kind: 'sold', item: 'candle', count: 8 }, reward: 100 },
+  { title: 'Медовый магнат', text: 'Заработай на рынке 1200 монет за игру.', check: { kind: 'earned', count: 1200 }, reward: 0 },
+];
+/** Research costs are scaled down in the short game. */
+export const SHORT_TECH_COST = 0.5;
 
 export const QUESTS: readonly QuestDef[] = [
   { title: 'Первая семья', text: 'Поставь улей (2) рядом с цветами. Чем больше цветов в радиусе, тем быстрее соты.', check: { kind: 'build', building: 'hive', count: 1 }, reward: 20 },
