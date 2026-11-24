@@ -730,14 +730,27 @@ export class WorldScene extends Phaser.Scene {
         const y = ev.y * TILE;
         this.floatText(x, y - 40, `+${Math.round(ev.coins)}`, '#ffd84a', ITEMS[ev.item].icon);
         if (Math.random() < 0.5) audio.coin();
+        // The market stall bounces on every sale.
+        const m = ctl.game.at(Math.floor(ev.x - 1), Math.floor(ev.y - 1));
+        const mv = m ? this.views.get(m.id) : undefined;
+        if (mv) this.squash(mv, 1.07);
+        this.sparks.setParticleTint(0xffe36a);
+        this.sparks.explode(5, x, y - 50);
         break;
       }
       case 'produced': {
         const v = this.views.get(ev.id);
         if (!v || v.b.type === 'hive') break;
         const c = this.center(v.b);
+        if (!this.cameras.main.worldView.contains(c.x, c.y)) break;
         this.sparks.setParticleTint(0xffc23d);
         this.sparks.explode(4, c.x, c.y - 30);
+        this.squash(v, 1.06);
+        // The finished item pops out of the machine.
+        const pop = this.add.image(c.x, c.y - 40, ITEMS[ev.item].icon).setScale(0.1).setDepth(1e6 + 6);
+        this.tweens.add({ targets: pop, y: c.y - 86, scale: 0.34, duration: 260, ease: 'Back.easeOut' });
+        this.tweens.add({ targets: pop, alpha: 0, y: c.y - 100, delay: 420, duration: 260, onComplete: () => pop.destroy() });
+        if (Math.random() < 0.25) audio.produce();
         break;
       }
       case 'mutation':
@@ -748,6 +761,14 @@ export class WorldScene extends Phaser.Scene {
         this.sparks.explode(ev.t === 'mutation' ? 60 : 16, x, y - 30);
         this.floatText(x, y - 70, ev.t === 'mutation' ? `✦ ${SPECIES[ev.species].name}!` : `+ матка: ${SPECIES[ev.species].name}`, ev.t === 'mutation' ? '#ffe36a' : '#fff4d1', 'i_bee');
         if (ev.t === 'mutation') { audio.mutation(); this.cameras.main.shake(250, 0.004); }
+        break;
+      }
+      case 'hit': {
+        const hv = this.views.get(ev.id);
+        if (!hv) break;
+        hv.body.setTint(0xff7a6a);
+        hv.root.x += (Math.random() - 0.5) * 6;
+        this.time.delayedCall(110, () => { if (hv.body.active) hv.body.clearTint(); const c = this.center(hv.b); hv.root.x = c.x; });
         break;
       }
       case 'tech': audio.tech(); break;
@@ -802,9 +823,25 @@ export class WorldScene extends Phaser.Scene {
         for (let i = 1; i <= 4; i++) this.smokePuff.emitParticleAt(sx + (tx - sx) * i / 4, sy + (ty - sy) * i / 4, 1);
         break;
       }
-      case 'built':
+      case 'built': {
+        this.syncAll();
+        const nb = ctl.game.get(ev.id);
+        if (!nb || BELT_TYPES.has(nb.type) || nb.type === 'fence') break;
+        // Shockwave ring on placement.
+        const c = this.center(nb);
+        const ring = this.add.circle(c.x, c.y + 10, BUILDINGS[nb.type].size * TILE * 0.45).setStrokeStyle(5, 0xffe36a, 0.9).setDepth(-20);
+        ring.setScale(0.4, 0.25);
+        this.tweens.add({ targets: ring, scaleX: 1.9, scaleY: 1.2, alpha: 0, duration: 520, ease: 'Cubic.easeOut', onComplete: () => ring.destroy() });
+        break;
+      }
       case 'removed': this.syncAll(); break;
     }
+  }
+
+  /** Quick squash-and-stretch on a building. */
+  private squash(v: View, k: number) {
+    if (this.tweens.isTweening(v.root)) return;
+    this.tweens.add({ targets: v.root, scaleX: k, scaleY: 2 - k, duration: 80, yoyo: true, ease: 'Sine.easeOut' });
   }
 
   private floatText(x: number, y: number, text: string, color: string, icon?: string) {

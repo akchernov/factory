@@ -189,7 +189,7 @@ export const audio = {
   remove() { noise(0.18, 0.3, 500, 0.8); tone(260, 0.2, 'square', 0.06, 80); },
   click() { tone(900, 0.04, 'triangle', 0.08); },
   error() { tone(200, 0.12, 'square', 0.08); tone(150, 0.16, 'square', 0.08, undefined, sfxBus, 0.09); },
-  coin() { tone(1318, 0.09, 'triangle', 0.1); tone(1975, 0.16, 'triangle', 0.09, undefined, sfxBus, 0.06); },
+  coin() { const p = 1 + Math.random() * 0.12; tone(1318 * p, 0.09, 'triangle', 0.1); tone(1975 * p, 0.16, 'triangle', 0.09, undefined, sfxBus, 0.06); },
   produce() { tone(660 + Math.random() * 60, 0.05, 'sine', 0.05); },
   tech() { [0, 4, 7, 12, 16].forEach((n, i) => tone(523 * Math.pow(2, n / 12), 0.5, 'triangle', 0.12, undefined, sfxBus, i * 0.09)); },
   quest() { [0, 7, 12].forEach((n, i) => tone(659 * Math.pow(2, n / 12), 0.35, 'sine', 0.14, undefined, sfxBus, i * 0.11)); },

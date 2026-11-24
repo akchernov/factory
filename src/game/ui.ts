@@ -37,6 +37,7 @@ export function createUi(onNewGame: (peaceful: boolean) => void, onContinue: () 
       <div class="spacer"></div>
       <button class="tb" id="btnTech" title="Технологии (T)">${icon('i_research')}<span>Наука</span><kbd>T</kbd></button>
       <button class="tb" id="btnBees" title="Пчёлы и селекция (B)">${icon('i_bee')}<span>Пчёлы</span><kbd>B</kbd></button>
+      <button class="tb" id="btnStats" title="Статистика производства (P)">📈<span>Графики</span><kbd>P</kbd></button>
       <div class="speed" id="speed">
         <button data-s="0" title="Пауза (Space)">❚❚</button><button data-s="1" class="on">▶</button><button data-s="2">▶▶</button><button data-s="4">▶▶▶</button>
       </div>
@@ -134,6 +135,7 @@ export function createUi(onNewGame: (peaceful: boolean) => void, onContinue: () 
   // ------------------------------------------------------------ top buttons
   $('#btnTech').onclick = () => openTech();
   $('#btnBees').onclick = () => openBees();
+  $('#btnStats').onclick = () => openStats();
   $('#queensChip').onclick = () => openBees();
   $('#btnMute').onclick = () => { audio.setMuted(!audio.isMuted()); syncMute(); };
   $('#btnMenu').onclick = () => openMenu();
@@ -188,6 +190,7 @@ export function createUi(onNewGame: (peaceful: boolean) => void, onContinue: () 
       return;
     }
     if (k === 't') { openTech(); return; }
+    if (k === 'p' || k === 'з') { openStats(); return; }
     if (k === 'b') { openBees(); return; }
     if (k === 'm') { audio.setMuted(!audio.isMuted()); syncMute(); return; }
     if (k === 'delete' && ctl.selected) {
@@ -208,7 +211,11 @@ export function createUi(onNewGame: (peaceful: boolean) => void, onContinue: () 
       case 'toast': toast(e.text, e.kind); break;
       case 'select': renderInspector(); break;
       case 'tool': syncSlots(); break;
+      case 'sold': flyCoin(e.x, e.y); break;
+      case 'killed':
+      case 'nest': flyCoin(e.x, e.y); break;
       case 'tech':
+        confetti(30);
         toast(`Изучено: ${TECHS[e.tech].name}`, 'good', TECHS[e.tech].icon);
         syncSlots();
         if (!$('#modal').classList.contains('hidden') && modalKind === 'tech') openTech();
@@ -217,6 +224,7 @@ export function createUi(onNewGame: (peaceful: boolean) => void, onContinue: () 
         const q = QUESTS[e.index]!;
         toast(`Задание выполнено: ${q.title}${e.reward ? ` · +${e.reward} 🪙` : ''}`, 'good', 'i_coin');
         questFlash = 1;
+        confetti(60);
         break;
       }
       case 'mutation':
@@ -227,10 +235,144 @@ export function createUi(onNewGame: (peaceful: boolean) => void, onContinue: () 
       case 'queen':
         if (modalKind === 'bees') openBees();
         break;
-      case 'won': setTimeout(() => openWin(), 1200); break;
+      case 'won': confetti(200); setTimeout(() => openWin(), 1200); break;
     }
   });
   let questFlash = 0;
+
+  // ------------------------------------------------------------ juice: coins fly to the HUD, confetti
+  let lastCoin = 0;
+  function flyCoin(wx: number, wy: number) {
+    const now = performance.now();
+    if (now - lastCoin < 110) return;
+    lastCoin = now;
+    const sc = (window as unknown as { __scene?: { cameras: { main: { zoom: number; worldView: { x: number; y: number } } } } }).__scene;
+    if (!sc) return;
+    const cam = sc.cameras.main;
+    const x = (wx * 64 - cam.worldView.x) * cam.zoom;
+    const y = (wy * 64 - cam.worldView.y) * cam.zoom;
+    if (x < 0 || y < 0 || x > window.innerWidth || y > window.innerHeight) return;
+    const chip = $('.chip.money');
+    const r = chip.getBoundingClientRect();
+    const tx = r.left + 20 - x;
+    const ty = r.top + r.height / 2 - y;
+    const el = document.createElement('img');
+    el.src = `${base}assets/i_coin.webp`;
+    el.className = 'flycoin';
+    el.style.left = `${x}px`;
+    el.style.top = `${y}px`;
+    root.append(el);
+    const anim = el.animate([
+      { transform: 'translate(-50%,-50%) scale(0.6)', opacity: 1 },
+      { transform: `translate(calc(-50% + ${tx * 0.25}px), calc(-50% + ${ty * 0.25 - 70}px)) scale(1.4)`, opacity: 1, offset: 0.35 },
+      { transform: `translate(calc(-50% + ${tx}px), calc(-50% + ${ty}px)) scale(0.6)`, opacity: 0.8 },
+    ], { duration: 620, easing: 'cubic-bezier(.45,0,.75,1)' });
+    anim.onfinish = () => {
+      el.remove();
+      chip.classList.remove('bump');
+      void chip.offsetWidth;
+      chip.classList.add('bump');
+    };
+  }
+
+  function confetti(n: number) {
+    const colors = ['#ffcf4a', '#ff8a3a', '#9be36a', '#6ad0ff', '#ff7ab0', '#fff4dc'];
+    for (let i = 0; i < n; i++) {
+      const el = document.createElement('i');
+      el.className = 'confetti';
+      el.style.left = `${Math.random() * 100}vw`;
+      el.style.background = colors[i % colors.length]!;
+      el.style.animationDuration = `${1.4 + Math.random() * 1.4}s`;
+      el.style.animationDelay = `${Math.random() * 0.4}s`;
+      el.style.setProperty('--dx', `${(Math.random() - 0.5) * 240}px`);
+      el.style.width = `${6 + Math.random() * 8}px`;
+      root.append(el);
+      setTimeout(() => el.remove(), 3400);
+    }
+  }
+
+  // ------------------------------------------------------------ production statistics
+  interface Sample { t: number; produced: Partial<Record<ItemId, number>>; earned: number }
+  const samples: Sample[] = [];
+  function sampleStats() {
+    const st = ctl.game.state;
+    const last = samples[samples.length - 1];
+    if (last && st.time < last.t) samples.length = 0; // new game
+    if (last && st.time - last.t < 5) return;
+    samples.push({ t: st.time, produced: { ...st.stats.produced }, earned: st.stats.earned });
+    if (samples.length > 145) samples.shift();
+  }
+  /** Per-minute series of the last 10 minutes for a value getter. */
+  function series(get: (s: Sample) => number): number[] {
+    const out: number[] = [];
+    for (let i = 12; i < samples.length; i += 1) {
+      const a = samples[i - 12]!;
+      const b = samples[i]!;
+      out.push(((get(b) - get(a)) / Math.max(1, b.t - a.t)) * 60);
+    }
+    return out;
+  }
+  function spark(c: HTMLCanvasElement, data: number[], color: string) {
+    const x = c.getContext('2d')!;
+    const W = c.width;
+    const H = c.height;
+    x.clearRect(0, 0, W, H);
+    if (data.length < 2) {
+      x.fillStyle = 'rgba(255,244,220,0.35)';
+      x.font = '700 12px Nunito, sans-serif';
+      x.fillText('копим данные…', 8, H / 2 + 4);
+      return;
+    }
+    const max = Math.max(1e-6, ...data);
+    const px = (i: number) => (i / (data.length - 1)) * (W - 4) + 2;
+    const py = (v: number) => H - 4 - (v / max) * (H - 10);
+    x.beginPath();
+    x.moveTo(px(0), H);
+    data.forEach((v, i) => x.lineTo(px(i), py(v)));
+    x.lineTo(px(data.length - 1), H);
+    x.closePath();
+    const g = x.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, `${color}88`);
+    g.addColorStop(1, `${color}08`);
+    x.fillStyle = g;
+    x.fill();
+    x.beginPath();
+    data.forEach((v, i) => (i ? x.lineTo(px(i), py(v)) : x.moveTo(px(i), py(v))));
+    x.strokeStyle = color;
+    x.lineWidth = 2.5;
+    x.lineJoin = 'round';
+    x.stroke();
+    x.fillStyle = color;
+    x.beginPath();
+    x.arc(px(data.length - 1), py(data[data.length - 1]!), 3.5, 0, Math.PI * 2);
+    x.fill();
+  }
+  function openStats() {
+    const st = ctl.game.state;
+    const items = (Object.keys(ITEMS) as ItemId[]).filter((k) => (st.stats.produced[k] ?? 0) > 0);
+    const rows = items.map((k) => {
+      const d = series((s) => s.produced[k] ?? 0);
+      const now = d.length ? d[d.length - 1]! : 0;
+      return `<div class="st-row">${icon(ITEMS[k].icon, 'ic lg')}<div class="st-name"><b>${ITEMS[k].name}</b><span class="sub">всего ${fmt(st.stats.produced[k] ?? 0)} · продано ${fmt(st.stats.sold[k] ?? 0)}</span></div><div class="st-rate"><b>${now.toFixed(1)}</b><span class="sub">в мин</span></div><canvas data-k="${k}" width="260" height="46"></canvas></div>`;
+    }).join('');
+    const inc = series((s) => s.earned);
+    openModal('stats', `
+      <h2>📈 Производство</h2>
+      <p class="sub">Скорость за последнюю минуту и график за 10 минут игрового времени.</p>
+      <div class="st-top">
+        <div class="st-card">${icon('i_coin', 'ic lg')}<div><b>${fmt(inc.length ? inc[inc.length - 1]! : 0)}</b><span class="sub">монет в мин</span></div><canvas id="stMoney" width="300" height="56"></canvas></div>
+        <div class="st-card small"><b>${fmt(st.stats.earned)}</b><span class="sub">заработано</span></div>
+        <div class="st-card small"><b>${st.buildings.filter((b) => b.type === 'hive').length}</b><span class="sub">ульев</span></div>
+        <div class="st-card small"><b>${st.stats.killed}</b><span class="sub">врагов отбито</span></div>
+        <div class="st-card small"><b>${st.stats.lost}</b><span class="sub">зданий потеряно</span></div>
+      </div>
+      <div class="st-rows">${rows || '<p class="sub">Пока ничего не произведено. Поставь улей у цветов.</p>'}</div>`, true);
+    spark($<HTMLCanvasElement>('#stMoney'), inc, '#ffcf4a');
+    $('#modalBox').querySelectorAll<HTMLCanvasElement>('canvas[data-k]').forEach((c) => {
+      const k = c.dataset.k as ItemId;
+      spark(c, series((s) => s.produced[k] ?? 0), '#9be36a');
+    });
+  }
 
   // ------------------------------------------------------------ toasts
   function toast(text: string, kind: 'error' | 'info' | 'good' = 'info', ic?: string) {
@@ -642,12 +784,18 @@ export function createUi(onNewGame: (peaceful: boolean) => void, onContinue: () 
   });
 
   let tick = 0;
+  let shownMoney = 0;
   return {
     update() {
       const g = ctl.game;
       const st = g.state;
       tick++;
-      $('#money').textContent = fmt(st.money);
+      sampleStats();
+      if (modalKind === 'stats' && tick % 120 === 0) openStats();
+      // Rolling money counter.
+      shownMoney += (st.money - shownMoney) * 0.18;
+      if (Math.abs(st.money - shownMoney) < 0.6) shownMoney = st.money;
+      $('#money').textContent = fmt(shownMoney);
       // income per minute, sampled each ~second
       if (tick % 60 === 0) {
         incomeHist.push(st.stats.earned - lastMoney);

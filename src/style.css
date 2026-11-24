@@ -291,3 +291,23 @@ body.playing #minimap { opacity: 1; }
 .slot.guide { border-color: var(--gold); animation: guide 0.9s ease-in-out infinite; }
 .slot.guide::after { content: '▼'; position: absolute; top: -22px; left: 50%; transform: translateX(-50%); color: var(--gold); font-size: 16px; text-shadow: 0 2px 0 #000; animation: bob 0.9s ease-in-out infinite; }
 @keyframes guide { 50% { box-shadow: 0 0 0 3px rgba(255, 207, 74, 0.6), 0 0 22px rgba(255, 207, 74, 0.7); transform: translateY(-3px); } }
+
+/* --------------------------------------------------------------- juice */
+#ui > .flycoin { position: fixed; width: 30px; height: 30px; pointer-events: none; z-index: 40; filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.6)); }
+.chip.money.bump { animation: bump 0.28s; }
+@keyframes bump { 40% { transform: scale(1.12); border-color: var(--gold); box-shadow: 0 0 18px rgba(255, 207, 74, 0.7); } }
+#ui > .confetti { position: fixed; top: -20px; height: 14px; border-radius: 2px; pointer-events: none; z-index: 45; animation: confetti linear forwards; }
+@keyframes confetti { to { transform: translate(var(--dx), 105vh) rotate(900deg); opacity: 0.9; } }
+
+/* --------------------------------------------------------------- stats */
+.st-top { display: grid; grid-template-columns: 2.4fr 1fr 1fr 1fr 1fr; gap: 8px; margin: 10px 0 14px; }
+.st-card { display: flex; align-items: center; gap: 10px; background: rgba(0, 0, 0, 0.3); border-radius: 12px; padding: 10px 12px; }
+.st-card.small { flex-direction: column; justify-content: center; gap: 0; text-align: center; }
+.st-card b { font-size: 22px; color: var(--gold); display: block; }
+.st-card canvas { margin-left: auto; max-width: 55%; }
+.st-rows { display: grid; gap: 6px; }
+.st-row { display: grid; grid-template-columns: 36px 1fr 80px 260px; align-items: center; gap: 10px; background: rgba(0, 0, 0, 0.25); border-radius: 10px; padding: 6px 12px; }
+.st-name b { display: block; font-size: 15px; }
+.st-rate { text-align: right; }
+.st-rate b { font-size: 20px; color: var(--good); display: block; line-height: 1; }
+@media (max-width: 900px) { .st-top { grid-template-columns: 1fr 1fr; } .st-row { grid-template-columns: 36px 1fr 70px; } .st-row canvas { display: none; } }
