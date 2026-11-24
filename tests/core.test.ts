@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { START_TILE, WORLD_GRID } from '../src/config/game';
 import { DEFAULT_RULES, createSimulation } from '../src/core';
-import type { Direction, GridPosition } from '../src/shared/types';
+import type { BuildingKind, Direction, GridPosition } from '../src/shared/types';
+import { generateTerrain, terrainAt, walkable } from '../src/world/terrain';
 
 const GRID = { columns: 24, rows: 15, tileSizePx: 32 };
 const FLOWERS: GridPosition[] = [{ col: 1, row: 0 }, { col: 1, row: 2 }, { col: 0, row: 0 }];
 
-function place(sim: ReturnType<typeof createSimulation>, kind: any, col: number, row: number, facing: Direction = 'east') {
+function place(sim: ReturnType<typeof createSimulation>, kind: BuildingKind, col: number, row: number, facing: Direction = 'east') {
   const r = sim.dispatch({ type: 'place', kind, tile: { col, row }, facing });
   assert.equal(r.ok, true, `place ${kind} at ${col},${row}: ${JSON.stringify(r)}`);
 }
@@ -123,4 +125,45 @@ test('deterministic: same commands give same snapshot', () => {
   const b = buildLine();
   for (let i = 0; i < 400; i++) { a.step(); b.step(); }
   assert.deepEqual(a.getSnapshot(), b.getSnapshot());
+});
+
+test('rotating a loaded conveyor preserves its item, ID and price and reroutes its output', () => {
+  const sim = createSimulation(GRID, DEFAULT_RULES, FLOWERS);
+  place(sim, 'hive', 1, 1);
+  place(sim, 'conveyor', 2, 1);
+  place(sim, 'extractor', 2, 2);
+  for (let i = 0; i < 15; i++) sim.step();
+  const before = sim.getSnapshot();
+  const belt = before.buildings[1]!;
+  assert.equal(belt.inventory.comb, 1);
+  assert.deepEqual(sim.dispatch({ type: 'rotate', tile: { col: 8, row: 1 }, facing: 'south' }), { ok: false, reason: 'missing' });
+  assert.equal(sim.dispatch({ type: 'rotate', tile: belt.tile, facing: 'south' }).ok, true);
+  const after = sim.getSnapshot();
+  assert.equal(after.money, before.money);
+  assert.deepEqual(after.buildings[1], { ...belt, facing: 'south' });
+  sim.step();
+  assert.equal(sim.getSnapshot().buildings[2]!.inventory.comb, 1);
+});
+
+test('generated maps reproduce by seed and leave a working starting production line', () => {
+  const terrain = generateTerrain(WORLD_GRID, START_TILE, 12345);
+  assert.deepEqual(terrain, generateTerrain(WORLD_GRID, START_TILE, 12345));
+  assert.notDeepEqual(terrain.river, generateTerrain(WORLD_GRID, START_TILE, 12346).river);
+  assert.ok(terrain.props.some((prop) => prop.kind === 'tree'));
+  assert.ok(terrain.props.some((prop) => prop.kind === 'rock'));
+  for (const row of terrain.bridges) {
+    const section = terrain.river[row]!;
+    for (let col = section.left - 1; col <= section.right; col++) {
+      assert.ok(walkable(terrainAt(terrain, { col, row })));
+    }
+  }
+
+  const sim = createSimulation(WORLD_GRID, DEFAULT_RULES, terrain.flowers, terrain.blocked);
+  const water = { col: terrain.river[START_TILE.row]!.left, row: START_TILE.row };
+  assert.deepEqual(sim.dispatch({ type: 'place', tile: water, kind: 'hive', facing: 'east' }), { ok: false, reason: 'blocked-terrain' });
+  const line = ['hive', 'conveyor', 'extractor', 'conveyor', 'packer', 'conveyor', 'market'] as const;
+  for (const [i, kind] of line.entries()) place(sim, kind, START_TILE.col - 1 + i, START_TILE.row);
+  const investment = sim.getSnapshot().money;
+  for (let i = 0; i < 160; i++) sim.step();
+  assert.ok(sim.getSnapshot().money > investment);
 });

@@ -36,7 +36,7 @@ interface Building {
   readonly id: string;
   readonly kind: BuildingKind;
   readonly tile: GridPosition;
-  readonly facing: Direction;
+  facing: Direction;
   readonly inventory: MutableInventory;
   /** Ticks spent on the current job: harvest timer, recipe or belt travel. */
   progress: number;
@@ -78,9 +78,11 @@ export function createSimulation(
   grid: GridSpec,
   rules: CoreRules = DEFAULT_RULES,
   flowers: readonly GridPosition[] = STARTER_FLOWERS,
+  blockedTiles: readonly GridPosition[] = [],
 ): FactorySimulation {
   const flowerTiles = Object.freeze(flowers.filter((tile) => isInGrid(tile, grid)));
   const flowerKeys = new Set(flowerTiles.map(key));
+  const blockedKeys = new Set(blockedTiles.map(key));
   const byTile = new Map<string, Building>();
   const player = emptyInventory();
   let money = STARTING_MONEY;
@@ -201,6 +203,7 @@ export function createSimulation(
 
   function place(kind: BuildingKind, tile: GridPosition, facing: Direction): CommandResult {
     if (byTile.has(key(tile)) || flowerKeys.has(key(tile))) return { ok: false, reason: 'occupied' };
+    if (blockedKeys.has(key(tile))) return { ok: false, reason: 'blocked-terrain' };
     const cost = rules.costs[kind];
     if (money < cost) return { ok: false, reason: 'insufficient-funds' };
     money -= cost;
@@ -226,6 +229,13 @@ export function createSimulation(
     return { ok: true };
   }
 
+  function rotate(tile: GridPosition, facing: Direction): CommandResult {
+    const building = byTile.get(key(tile));
+    if (!building) return { ok: false, reason: 'missing' };
+    building.facing = facing;
+    return { ok: true };
+  }
+
   return {
     step() {
       tick += 1;
@@ -241,9 +251,12 @@ export function createSimulation(
     },
     dispatch(command: FactoryCommand): CommandResult {
       if (!isInGrid(command.tile, grid)) return { ok: false, reason: 'out-of-bounds' };
-      const result = command.type === 'place'
-        ? place(command.kind, command.tile, command.facing)
-        : remove(command.tile);
+      let result: CommandResult;
+      switch (command.type) {
+        case 'place': result = place(command.kind, command.tile, command.facing); break;
+        case 'rotate': result = rotate(command.tile, command.facing); break;
+        case 'remove': result = remove(command.tile); break;
+      }
       if (result.ok) snapshot = makeSnapshot();
       return result;
     },

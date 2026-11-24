@@ -37,11 +37,12 @@ export interface FactorySnapshot {
 
 export type FactoryCommand =
   | { readonly type: 'place'; readonly kind: BuildingKind; readonly tile: GridPosition; readonly facing: Direction }
+  | { readonly type: 'rotate'; readonly tile: GridPosition; readonly facing: Direction }
   | { readonly type: 'remove'; readonly tile: GridPosition };
 
 export type CommandResult =
   | { readonly ok: true }
-  | { readonly ok: false; readonly reason: 'out-of-bounds' | 'occupied' | 'missing' | 'insufficient-funds' | 'not-implemented' };
+  | { readonly ok: false; readonly reason: 'out-of-bounds' | 'occupied' | 'blocked-terrain' | 'missing' | 'insufficient-funds' | 'not-implemented' };
 
 export interface FactorySimulation {
   /** Advances exactly one fixed tick. */

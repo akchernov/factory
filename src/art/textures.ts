@@ -1,14 +1,11 @@
 import type Phaser from 'phaser';
 
-/**
- * All textures are drawn in code at load time: no external files, works offline
- * and in the one-file Vercel build. Replace any key with a real PNG in
- * public/assets/ later (scene.load.image(KEY, 'assets/x.png')) and nothing else changes.
- */
 export const TEX = {
+  grass: 'art-grass',
+  trees: 'art-trees',
+  rocks: 'art-rocks',
   player: 'art-player',
   flower: 'art-flower',
-  flowerB: 'art-flower-b',
   hive: 'art-hive',
   belt: 'art-belt',
   extractor: 'art-extractor',
@@ -26,6 +23,24 @@ export const TEX = {
 const T = 32; // tile size
 
 type G = Phaser.GameObjects.Graphics;
+
+export function loadTextures(scene: Phaser.Scene) {
+  const base = `${import.meta.env.BASE_URL}assets/`;
+  scene.load.image(TEX.grass, `${base}meadow-grass.jpg`);
+  scene.load.image(TEX.flower, `${base}meadow-flowers.png`);
+  scene.load.spritesheet(TEX.trees, `${base}forest.png`, { frameWidth: 192, frameHeight: 192 });
+  scene.load.spritesheet(TEX.rocks, `${base}ridge.png`, { frameWidth: 192, frameHeight: 192 });
+  for (const kind of ['hive', 'extractor', 'packer', 'market'] as const) {
+    scene.load.spritesheet(TEX[kind], `${base}building-${kind}.png`, {
+      frameWidth: 128,
+      frameHeight: 128,
+    });
+  }
+  scene.load.spritesheet(TEX.player, `${base}beekeeper-directions.png`, {
+    frameWidth: 128,
+    frameHeight: 128,
+  });
+}
 
 function make(scene: Phaser.Scene, key: string, w: number, h: number, draw: (g: G) => void) {
   if (scene.textures.exists(key)) return;
@@ -51,32 +66,6 @@ export function createTextures(scene: Phaser.Scene) {
     g.fillStyle(0x000000, 0.18).fillEllipse(16, 6, 30, 10);
     g.fillStyle(0x000000, 0.14).fillEllipse(16, 6, 22, 7);
   });
-
-  // Beekeeper: white suit, veil hat, top-down-ish.
-  make(scene, TEX.player, 24, 28, (g) => {
-    g.fillStyle(0x3b2a1a).fillRoundedRect(5, 22, 5, 5, 2).fillRoundedRect(14, 22, 5, 5, 2); // boots
-    g.fillStyle(0xf4efe0).fillRoundedRect(4, 11, 16, 13, 5); // suit
-    g.lineStyle(1, 0xb9b09a).strokeRoundedRect(4, 11, 16, 13, 5);
-    g.fillStyle(0xe6dcc4).fillRoundedRect(1, 13, 5, 8, 2).fillRoundedRect(18, 13, 5, 8, 2); // arms
-    g.fillStyle(0xffd264).fillCircle(12, 8, 7); // hat brim
-    g.fillStyle(0xf1c24a).fillCircle(12, 7, 4.5);
-    g.fillStyle(0x2a2a2a, 0.55).fillRect(7, 9, 10, 4); // veil mesh
-    g.fillStyle(0xffe9b0).fillCircle(9.5, 10.5, 1).fillCircle(14.5, 10.5, 1);
-  });
-
-  // Two flower variants for variety.
-  const flower = (key: string, petal: number, center: number) => make(scene, key, T, T, (g) => {
-    g.fillStyle(0x4f8a3c).fillRect(15, 16, 2, 12);
-    g.fillStyle(0x5fa548).fillEllipse(11, 24, 8, 4).fillEllipse(21, 22, 8, 4);
-    for (let i = 0; i < 6; i++) {
-      const a = Math.PI / 3 * i;
-      g.fillStyle(petal).fillCircle(16 + Math.cos(a) * 6, 12 + Math.sin(a) * 6, 4.5);
-    }
-    g.fillStyle(center).fillCircle(16, 12, 4);
-    g.fillStyle(0xffffff, 0.35).fillCircle(14.5, 10.5, 1.5);
-  });
-  flower(TEX.flower, 0xff92b2, 0xffe296);
-  flower(TEX.flowerB, 0xfff3c4, 0xf2a93b);
 
   // Skep-style hive: stacked straw rings and an entrance.
   make(scene, TEX.hive, T, T, (g) => {
