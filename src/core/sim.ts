@@ -2,7 +2,8 @@ import {
   BELT_GAP, BREED, BUILDINGS, DAY_SECONDS, FLOWERS, FLOWER_IDS, HIVE, ITEMS, ITEM_IDS, LAB_SECONDS_PER_ITEM,
   MACHINE_OUTPUT_CAP, MARKET, MONUMENT_NEEDS, MUTATIONS, NIGHT_SHARE, PREFERRED_BONUS, QUESTS, REFUND, SPECIES,
   SPECIES_IDS, START_MONEY, START_UNLOCKED, TECHS, TECH_IDS, WILD_SPECIES,
-  type BuildingId, type ItemId, type SpeciesId, type TechId,
+  ENEMIES, NEST, RAIDS, REGEN, SMOKER,
+  type BuildingId, type EnemyKind, type ItemId, type SpeciesId, type TechId,
 } from './data';
 import { Terrain, generateMap, type MapData } from './map';
 import { nextRandom } from './rng';
@@ -30,16 +31,38 @@ export interface Building {
   species?: SpeciesId;
   parents?: [SpeciesId, SpeciesId];
   working: boolean;
+  hp: number;
+  /** Game time of the last damage taken. */
+  hitAt: number;
 }
+
+export interface Enemy {
+  id: number;
+  kind: EnemyKind;
+  x: number;
+  y: number;
+  hp: number;
+  /** Building being attacked or walked to. */
+  target: number;
+  /** Fleeing enemies run back to the edge (after a hive is robbed). */
+  flee: boolean;
+  /** Building currently being chewed (fence in the way, or the target). */
+  biting: number;
+}
+
+export interface Nest { id: number; x: number; y: number; hp: number }
 
 export interface Stats {
   produced: Inv;
   sold: Inv;
   earned: number;
+  killed: number;
+  nests: number;
+  lost: number;
 }
 
 export interface GameState {
-  version: 2;
+  version: 3;
   seed: number;
   rng: number;
   time: number;
@@ -59,6 +82,12 @@ export interface GameState {
   won: boolean;
   wonAt: number;
   monument: Inv;
+  enemies: Enemy[];
+  nests: Nest[] | null;
+  threat: number;
+  /** Last day a raid of this kind spawned. */
+  raided: { bear: number; hornet: number };
+  peaceful: boolean;
 }
 
 export type GameEvent =
@@ -70,7 +99,13 @@ export type GameEvent =
   | { t: 'queen'; species: SpeciesId; x: number; y: number }
   | { t: 'tech'; tech: TechId }
   | { t: 'quest'; index: number; reward: number }
-  | { t: 'won' };
+  | { t: 'won' }
+  | { t: 'raid'; kind: EnemyKind; count: number; x: number; y: number }
+  | { t: 'killed'; kind: EnemyKind; x: number; y: number; coins: number }
+  | { t: 'destroyed'; type: BuildingId; x: number; y: number }
+  | { t: 'nest'; x: number; y: number; coins: number }
+  | { t: 'hit'; id: number }
+  | { t: 'shot'; from: number; x: number; y: number };
 
 export type Fail = 'bounds' | 'blocked' | 'money' | 'locked' | 'queen' | 'missing' | 'invalid';
 export type Result = { ok: true } | { ok: false; reason: Fail };
@@ -99,9 +134,9 @@ function count(inv: Inv, item: ItemId) {
   return inv[item] ?? 0;
 }
 
-export function newGame(seed = 20261124): GameState {
+export function newGame(seed = 20261124, peaceful = false): GameState {
   return {
-    version: 2,
+    version: 3,
     seed,
     rng: seed,
     time: DAY_SECONDS * 0.08,
@@ -110,17 +145,22 @@ export function newGame(seed = 20261124): GameState {
     nextId: 1,
     queens: { forest: 2, meadow: 2 },
     discovered: ['forest', 'meadow'],
-    barn: {},
+    barn: { wax: 20 },
     techs: [],
     research: null,
     researchProgress: {},
     market: {},
-    stats: { produced: {}, sold: {}, earned: 0 },
+    stats: { produced: {}, sold: {}, earned: 0, killed: 0, nests: 0, lost: 0 },
     quest: 0,
     cleared: [],
     won: false,
     wonAt: 0,
     monument: {},
+    enemies: [],
+    nests: null,
+    threat: 0,
+    raided: { bear: 1, hornet: 1 },
+    peaceful,
   };
 }
 
@@ -155,7 +195,30 @@ export class Game {
       this.map.terrain[i] = Terrain.Grass;
       this.map.flower[i] = -1;
     }
+    if (!state.nests) state.nests = this.placeNests();
     this.rebuild();
+  }
+
+  /** Hornet nests far from the start, on grass, spread around the map. */
+  private placeNests(): Nest[] {
+    const m = this.map;
+    const out: Nest[] = [];
+    const st = { rng: this.state.seed ^ 0x5eed };
+    for (let tries = 0; tries < 4000 && out.length < NEST.count; tries++) {
+      const x = 2 + Math.floor(nextRandom(st) * (m.w - 5));
+      const y = 2 + Math.floor(nextRandom(st) * (m.h - 5));
+      if (Math.hypot(x - m.start.x, y - m.start.y) < 24) continue;
+      if (out.some((n) => Math.hypot(n.x - x, n.y - y) < 18)) continue;
+      let ok = true;
+      for (let dy = 0; dy < 2 && ok; dy++) for (let dx = 0; dx < 2 && ok; dx++) if (m.terrain[(y + dy) * m.w + x + dx] !== Terrain.Grass) ok = false;
+      if (!ok) continue;
+      out.push({ id: this.state.nextId++, x, y, hp: NEST.hp });
+    }
+    return out;
+  }
+
+  nestAt(x: number, y: number): Nest | undefined {
+    return this.state.nests?.find((n) => n.hp > 0 && x >= n.x && x < n.x + 2 && y >= n.y && y < n.y + 2);
   }
 
   // ------------------------------------------------------------ queries
@@ -332,6 +395,7 @@ export class Game {
       case 'breeder': return item === 'honey' || item === 'pollen';
       case 'lab': return this.researchNeed(item) > 0;
       case 'monument': return (MONUMENT_NEEDS[item] ?? 0) > count(this.state.monument, item);
+      case 'tower': return item === 'wax';
       default: return false;
     }
   }
@@ -342,6 +406,7 @@ export class Game {
       case 'machine': return Math.max(4, (def.recipe!.inputs[item] ?? 0) * 3);
       case 'breeder': return item === 'honey' ? BREED.honeyPerCycle * 2 : BREED.pollenMax;
       case 'lab': return 4;
+      case 'tower': return SMOKER.ammoCap;
       case 'store': return def.capacity!;
       default: return Infinity;
     }
@@ -397,7 +462,7 @@ export class Game {
     if (x < 0 || y < 0 || x + s > this.map.w || y + s > this.map.h) return fail('bounds');
     for (let ty = y; ty < y + s; ty++) for (let tx = x; tx < x + s; tx++) {
       const i = this.idx(tx, ty);
-      if (this.grid[i] || this.map.terrain[i] !== Terrain.Grass) return fail('blocked');
+      if (this.grid[i] || this.map.terrain[i] !== Terrain.Grass || this.nestAt(tx, ty)) return fail('blocked');
     }
     if (this.state.money < def.cost) return fail('money');
     let sp: SpeciesId | undefined;
@@ -409,6 +474,7 @@ export class Game {
     this.state.money -= def.cost;
     const b: Building = {
       id: this.state.nextId++, type, x, y, dir, items: [], inv: {}, out: {}, progress: 0, acc: 0, rr: 0, working: false,
+      hp: def.hp, hitAt: -99,
     };
     if (sp) b.species = sp;
     if (type === 'breeder') b.parents = ['forest', 'meadow'];
@@ -538,9 +604,15 @@ export class Game {
         case 'lab': this.stepLab(b); break;
         case 'breeder': this.stepBreeder(b); break;
         case 'monument': this.stepMonument(); break;
+        case 'tower': this.stepTower(b); break;
         default: break;
       }
+      // Regeneration after a quiet period.
+      const max = BUILDINGS[b.type].hp;
+      if (b.hp < max && st.time - b.hitAt > REGEN.delay) b.hp = Math.min(max, b.hp + max * REGEN.perSecond * DT);
     }
+    this.stepRaids();
+    this.stepEnemies();
     // Market recovery.
     const rec = st.techs.includes('trade') ? MARKET.tradeRecovery : MARKET.recoveryPerSecond;
     for (const k of Object.keys(st.market) as ItemId[]) {
@@ -630,6 +702,7 @@ export class Game {
         b.acc -= 1;
         add(b.out, 'comb', 1);
         add(this.state.stats.produced, 'comb', 1);
+        this.state.threat += RAIDS.threatPerComb;
         this.events.push({ t: 'produced', id: b.id, item: 'comb' });
         const sp = SPECIES[b.species ?? 'forest'];
         for (const [item, chance] of Object.entries(sp.specials)) {
@@ -757,6 +830,205 @@ export class Game {
     else this.events.push({ t: 'queen', species: result, x: b.x + 1, y: b.y + 1 });
   }
 
+  // ------------------------------------------------------------ combat
+
+  private stepTower(t: Building) {
+    if (count(t.inv, 'wax') < 1 && count(this.state.barn, 'wax') > 0) {
+      add(this.state.barn, 'wax', -1);
+      add(t.inv, 'wax', 1);
+    }
+    t.working = false;
+    const hasAmmo = count(t.inv, 'wax') > 0 || t.acc > 0;
+    if (!hasAmmo) return;
+    const cx = t.x + 1;
+    const cy = t.y + 1;
+    let best: Enemy | undefined;
+    let bd = SMOKER.range;
+    for (const e of this.state.enemies) {
+      const d = Math.hypot(e.x - cx, e.y - cy);
+      if (d <= bd) { bd = d; best = e; }
+    }
+    let nest: Nest | undefined;
+    if (!best) {
+      for (const n of this.state.nests ?? []) {
+        if (n.hp > 0 && Math.hypot(n.x + 1 - cx, n.y + 1 - cy) <= SMOKER.range + 1) { nest = n; break; }
+      }
+    }
+    if (!best && !nest) return;
+    t.working = true;
+    // Wax is burned continuously while shooting: acc holds remaining seconds of the current lump.
+    if (t.acc <= 0) {
+      add(t.inv, 'wax', -1);
+      t.acc = SMOKER.secondsPerWax;
+    }
+    t.acc -= DT;
+    const dmg = SMOKER.dps * DT;
+    if (best) {
+      best.hp -= dmg;
+      if (Math.round(this.state.time * 10) % 4 === 0) this.events.push({ t: 'shot', from: t.id, x: best.x, y: best.y });
+      if (best.hp <= 0) this.kill(best);
+    } else if (nest) {
+      nest.hp -= dmg;
+      if (Math.round(this.state.time * 10) % 4 === 0) this.events.push({ t: 'shot', from: t.id, x: nest.x + 1, y: nest.y + 1 });
+      if (nest.hp <= 0) {
+        this.state.money += NEST.reward;
+        this.state.stats.earned += NEST.reward;
+        this.state.stats.nests++;
+        this.events.push({ t: 'nest', x: nest.x + 1, y: nest.y + 1, coins: NEST.reward });
+      }
+    }
+  }
+
+  private kill(e: Enemy) {
+    const def = ENEMIES[e.kind];
+    this.state.enemies = this.state.enemies.filter((o) => o !== e);
+    this.state.money += def.reward;
+    this.state.stats.killed++;
+    this.events.push({ t: 'killed', kind: e.kind, x: e.x, y: e.y, coins: def.reward });
+  }
+
+  /** Raid sizes grow with threat (comb produced), like pollution-driven attacks in Factorio. */
+  raidSize(kind: EnemyKind): number {
+    const th = this.state.threat;
+    if (kind === 'bear') return Math.min(RAIDS.maxBears, 1 + Math.floor(th / 40));
+    const alive = (this.state.nests ?? []).filter((n) => n.hp > 0).length;
+    if (!alive) return 0;
+    return Math.min(RAIDS.maxHornets, 2 + Math.floor(th / 18));
+  }
+
+  /** Seconds until the next raid of each kind (for the HUD warning). */
+  nextRaidIn(kind: EnemyKind): number {
+    const st = this.state;
+    const phase = kind === 'bear' ? RAIDS.bearPhase : RAIDS.hornetPhase;
+    const day = this.day();
+    const firstDay = RAIDS.firstDay + (kind === 'hornet' ? 1 : 0);
+    let d = Math.max(day, firstDay);
+    let t = (d - 1 + phase) * DAY_SECONDS;
+    if (t <= st.time || st.raided[kind] >= d) { d = Math.max(d + 1, st.raided[kind] + 1); t = (d - 1 + phase) * DAY_SECONDS; }
+    return t - st.time;
+  }
+
+  private stepRaids() {
+    const st = this.state;
+    if (st.peaceful || !st.buildings.some((b) => b.type === 'hive')) return;
+    const day = this.day();
+    const phase = (st.time % DAY_SECONDS) / DAY_SECONDS;
+    if (day >= RAIDS.firstDay && st.raided.bear < day && phase >= RAIDS.bearPhase) {
+      st.raided.bear = day;
+      const n = this.raidSize('bear');
+      // Bears come out of the forest edge from a random side.
+      const side = Math.floor(nextRandom(st) * 4);
+      let ax = 0;
+      let ay = 0;
+      for (let i = 0; i < n; i++) {
+        const r = nextRandom(st);
+        const x = side === 0 ? 1 : side === 1 ? this.map.w - 2 : 4 + r * (this.map.w - 8);
+        const y = side === 2 ? 1 : side === 3 ? this.map.h - 2 : 4 + r * (this.map.h - 8);
+        this.spawn('bear', x, y);
+        ax += x;
+        ay += y;
+      }
+      this.events.push({ t: 'raid', kind: 'bear', count: n, x: ax / n, y: ay / n });
+    }
+    if (day >= RAIDS.firstDay + 1 && st.raided.hornet < day && phase >= RAIDS.hornetPhase && phase < RAIDS.bearPhase) {
+      st.raided.hornet = day;
+      const n = this.raidSize('hornet');
+      const nests = (st.nests ?? []).filter((x) => x.hp > 0);
+      if (n && nests.length) {
+        const nest = nests[Math.floor(nextRandom(st) * nests.length)]!;
+        for (let i = 0; i < n; i++) this.spawn('hornet', nest.x + 1 + (nextRandom(st) - 0.5) * 2, nest.y + 1 + (nextRandom(st) - 0.5) * 2);
+        this.events.push({ t: 'raid', kind: 'hornet', count: n, x: nest.x + 1, y: nest.y + 1 });
+      }
+    }
+  }
+
+  private spawn(kind: EnemyKind, x: number, y: number) {
+    this.state.enemies.push({ id: this.state.nextId++, kind, x, y, hp: ENEMIES[kind].hp, target: 0, flee: false, biting: 0 });
+  }
+
+  private nearestTarget(e: Enemy): Building | undefined {
+    // Both enemies love honey: hives first, anything else if no hives.
+    let best: Building | undefined;
+    let bd = Infinity;
+    for (const pass of [true, false]) {
+      for (const b of this.state.buildings) {
+        if (pass && b.type !== 'hive') continue;
+        if (!pass && BUILDINGS[b.type].behaviour === 'belt') continue;
+        const s = BUILDINGS[b.type].size;
+        const d = Math.hypot(b.x + s / 2 - e.x, b.y + s / 2 - e.y);
+        if (d < bd) { bd = d; best = b; }
+      }
+      if (best) return best;
+    }
+    return undefined;
+  }
+
+  private damage(b: Building, dmg: number) {
+    b.hp -= dmg;
+    b.hitAt = this.state.time;
+    if (Math.round(this.state.time * 10) % 5 === 0) this.events.push({ t: 'hit', id: b.id });
+    if (b.hp > 0) return;
+    this.state.buildings = this.state.buildings.filter((o) => o !== b);
+    if (b.species) this.state.queens[b.species] = (this.state.queens[b.species] ?? 0) + 1; // the queen escapes
+    this.state.stats.lost++;
+    this.rebuild();
+    this.events.push({ t: 'destroyed', type: b.type, x: b.x, y: b.y });
+  }
+
+  private stepEnemies() {
+    const st = this.state;
+    for (const e of [...st.enemies]) {
+      const def = ENEMIES[e.kind];
+      if (e.flee) {
+        // Run to the nearest edge, then vanish.
+        const ex = e.x < this.map.w / 2 ? -1 : this.map.w + 1;
+        const ey = e.y < this.map.h / 2 ? -1 : this.map.h + 1;
+        const toX = Math.abs(ex - e.x) < Math.abs(ey - e.y);
+        e.x += toX ? Math.sign(ex - e.x) * def.speed * 1.4 * DT : 0;
+        e.y += toX ? 0 : Math.sign(ey - e.y) * def.speed * 1.4 * DT;
+        if (e.x < -0.5 || e.y < -0.5 || e.x > this.map.w + 0.5 || e.y > this.map.h + 0.5) st.enemies = st.enemies.filter((o) => o !== e);
+        continue;
+      }
+      let target = this.byId.get(e.target);
+      if (!target) {
+        target = this.nearestTarget(e);
+        if (!target) { e.flee = true; continue; }
+        e.target = target.id;
+      }
+      const s = BUILDINGS[target.type].size;
+      const tx = target.x + s / 2;
+      const ty = target.y + s / 2;
+      const dx = tx - e.x;
+      const dy = ty - e.y;
+      const d = Math.hypot(dx, dy);
+      const reach = s / 2 + 0.45;
+      if (d <= reach) {
+        e.biting = target.id;
+        this.damage(target, def.dps * DT);
+        // A bear that empties a hive of comb runs away happy.
+        if (target.type === 'hive' && e.kind === 'bear' && (target.out.comb ?? 0) > 0 && nextRandom(st) < 0.01) {
+          target.out.comb = 0;
+          e.flee = true;
+        }
+        continue;
+      }
+      const step = def.speed * DT;
+      const nx = e.x + (dx / d) * step;
+      const ny = e.y + (dy / d) * step;
+      if (!def.flying) {
+        const block = this.at(Math.floor(nx), Math.floor(ny));
+        if (block && block.id !== target.id && BUILDINGS[block.type].behaviour !== 'belt') {
+          e.biting = block.id;
+          this.damage(block, def.dps * DT);
+          continue;
+        }
+      }
+      e.biting = 0;
+      e.x = nx;
+      e.y = ny;
+    }
+  }
+
   // ------------------------------------------------------------ quests
 
   questProgress(i: number): [number, number] {
@@ -772,6 +1044,7 @@ export class Game {
       case 'earned': return [Math.floor(st.stats.earned), c.count];
       case 'tech': return [st.techs.includes(c.tech) ? 1 : 0, 1];
       case 'species': return [st.discovered.includes(c.species) ? 1 : 0, 1];
+      case 'nests': return [st.stats.nests, c.count];
       case 'monument': {
         let need = 0;
         let have = 0;

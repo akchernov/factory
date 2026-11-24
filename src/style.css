@@ -20,6 +20,7 @@
 html, body { margin: 0; height: 100%; overflow: hidden; background: #1d3a22; color: var(--ink); user-select: none; -webkit-user-select: none; }
 #game { position: fixed; inset: 0; }
 #game canvas { display: block; }
+#night { position: fixed; inset: 0; pointer-events: none; mix-blend-mode: multiply; opacity: 0; transition: opacity 1.5s; z-index: 1; }
 #ui { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
 #ui > * { pointer-events: auto; }
 #ui > #toasts { pointer-events: none; }
@@ -276,3 +277,13 @@ body.playing #hotbar { opacity: 1; transform: translateX(-50%); }
   .slot { width: 46px; height: 46px; }
   .bic { width: 32px; height: 32px; }
 }
+
+/* --------------------------------------------------------------- combat & minimap */
+.chip.raid b { font-size: 16px; }
+.chip.raid.soon { border-color: #ffb03a; animation: pulse 1s infinite; }
+.chip.raid.live { border-color: var(--bad); background: linear-gradient(180deg, #6a2414, #3a120a); animation: pulse 0.6s infinite; }
+#minimap { position: absolute; right: 10px; bottom: 10px; width: 168px; height: 120px; padding: 0; cursor: pointer; image-rendering: pixelated; opacity: 0; transition: 0.5s 0.2s; }
+body.playing #minimap { opacity: 1; }
+.peace { display: flex; align-items: center; gap: 8px; margin-top: 14px; font-weight: 700; font-size: 14px; text-shadow: 0 1px 4px #000; cursor: pointer; }
+.peace input { width: 18px; height: 18px; accent-color: var(--gold); }
+@media (max-width: 1280px) { #minimap { width: 126px; height: 90px; } }

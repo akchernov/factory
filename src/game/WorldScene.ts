@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { BUILDINGS, FLOWER_IDS, FLOWERS, HIVE, ITEMS, SPECIES, type BuildingId, type ItemId } from '../core/data';
+import { BUILDINGS, ENEMIES, FLOWER_IDS, FLOWERS, HIVE, ITEMS, NEST, SMOKER, SPECIES, type BuildingId, type ItemId } from '../core/data';
 import { Terrain } from '../core/map';
 import { DX, DY, FAIL_TEXT, type Building, type Dir, type GameEvent } from '../core/sim';
 import { audio } from './audio';
@@ -13,6 +13,7 @@ const SPRITES = [
   'f_sunflower', 'f_lavender', 'f_poppy', 'f_heather', 'f_daisy', 'f_buckwheat',
   'i_nectar', 'i_comb', 'i_honey', 'i_jar', 'i_wax', 'i_candle', 'i_mead', 'i_jelly', 'i_research', 'i_bee', 'i_pollen',
   'i_propolis', 'i_coin', 'i_lavender', 'i_cake',
+  'e_bear', 'e_bear_up', 'e_hornet', 'e_nest', 'e_nest2', 'e_rubble', 'b_smoker', 'b_fence',
 ];
 
 const BELT_TYPES = new Set<BuildingId>(['belt', 'belt2', 'belt3']);
@@ -49,7 +50,6 @@ export class WorldScene extends Phaser.Scene {
   private ghostRange!: Phaser.GameObjects.Graphics;
   private ghostText!: Phaser.GameObjects.Text;
   private selectGfx!: Phaser.GameObjects.Graphics;
-  private night!: Phaser.GameObjects.Rectangle;
   private glowLayer!: Phaser.GameObjects.Layer;
   private player!: Phaser.GameObjects.Container;
   private playerImg!: Phaser.GameObjects.Image;
@@ -73,6 +73,11 @@ export class WorldScene extends Phaser.Scene {
   private fireflies!: Phaser.GameObjects.Particles.ParticleEmitter;
   private butterflies: { img: Phaser.GameObjects.Image; vx: number; vy: number; t: number }[] = [];
   private eventsBound = false;
+  private enemyViews = new Map<number, { root: Phaser.GameObjects.Container; img: Phaser.GameObjects.Image; hp: Phaser.GameObjects.Graphics; lx: number }>();
+  private nestViews = new Map<number, { img: Phaser.GameObjects.Image; hp: Phaser.GameObjects.Graphics; alive: boolean }>();
+  private hpGfx!: Phaser.GameObjects.Graphics;
+  private smokePuff!: Phaser.GameObjects.Particles.ParticleEmitter;
+  private rangeGfx!: Phaser.GameObjects.Graphics;
 
   constructor() {
     super('world');
@@ -99,6 +104,22 @@ export class WorldScene extends Phaser.Scene {
     this.buildWorld();
     this.setupInput();
     this.setupFx();
+    this.hpGfx = this.add.graphics().setDepth(1e6 + 3);
+    this.rangeGfx = this.add.graphics().setDepth(-30);
+    this.smokePuff = this.add.particles(0, 0, 'smoke', {
+      speed: { min: 10, max: 40 }, lifespan: 900, scale: { start: 0.5, end: 1.6 }, alpha: { start: 0.65, end: 0 }, tint: 0xe8e0d0, emitting: false,
+    }).setDepth(1e6 + 4);
+    this.enemyViews.clear();
+    this.nestViews.clear();
+    for (const n of ctl.game.state.nests ?? []) {
+      const cx = (n.x + 1) * TILE;
+      const cy = (n.y + 1) * TILE;
+      const img = this.add.image(cx, cy + 50, 'e_nest').setOrigin(0.5, 1).setScale(0.55).setDepth(cy + 40);
+      this.add.image(cx + 4, cy + 46, 'shadow').setScale(1.4, 1.2).setDepth(cy - 50);
+      const hp = this.add.graphics().setDepth(1e6 + 3);
+      if (n.hp <= 0) img.setTexture('e_rubble').setScale(0.35);
+      this.nestViews.set(n.id, { img, hp, alive: n.hp > 0 });
+    }
     if (!this.eventsBound) {
       ctl.on((e) => this.onEvent(e));
       this.eventsBound = true;
@@ -201,9 +222,6 @@ export class WorldScene extends Phaser.Scene {
     this.ghost.add([this.ghostImg, this.ghostArrow, this.ghostText]);
     this.selectGfx = this.add.graphics().setDepth(1e6 - 1);
 
-    // Day/night overlay above the world, below UI (UI is DOM).
-    this.night = this.add.rectangle(0, 0, 10, 10, 0x0a1640, 0).setOrigin(0).setScrollFactor(0).setDepth(2e6);
-    this.night.setBlendMode(Phaser.BlendModes.MULTIPLY);
     this.glowLayer = this.add.layer().setDepth(2e6 + 1);
   }
 
@@ -577,6 +595,55 @@ export class WorldScene extends Phaser.Scene {
       case 'tech': audio.tech(); break;
       case 'quest': audio.quest(); break;
       case 'won': audio.win(); this.cameras.main.flash(800, 255, 220, 120); break;
+      case 'raid': {
+        const kind = ev.kind;
+        ctl.toast(kind === 'bear' ? `🐻 Медведи идут из леса: ${ev.count}!` : `🐝 Налёт шершней: ${ev.count}!`, 'error');
+        audio.error();
+        this.cameras.main.shake(300, 0.003);
+        break;
+      }
+      case 'killed': {
+        const x = ev.x * TILE;
+        const y = ev.y * TILE;
+        this.dust.explode(14, x, y);
+        this.floatText(x, y - 30, `+${ev.coins}`, '#ffd84a', 'i_coin');
+        audio.coin();
+        break;
+      }
+      case 'destroyed': {
+        const d = BUILDINGS[ev.type];
+        const x = (ev.x + d.size / 2) * TILE;
+        const y = (ev.y + d.size / 2) * TILE;
+        this.dust.explode(30, x, y);
+        const r = this.add.image(x, y + 20, 'e_rubble').setScale(0.12 * d.size).setDepth(y - 10).setAlpha(0.9);
+        this.tweens.add({ targets: r, alpha: 0, delay: 8000, duration: 2000, onComplete: () => r.destroy() });
+        ctl.toast(`Разрушено: ${d.name}`, 'error');
+        audio.remove();
+        this.cameras.main.shake(200, 0.004);
+        this.syncAll();
+        break;
+      }
+      case 'nest': {
+        const x = ev.x * TILE;
+        const y = ev.y * TILE;
+        this.sparks.setParticleTint(0xff9a3a);
+        this.sparks.explode(50, x, y - 20);
+        this.dust.explode(30, x, y);
+        this.floatText(x, y - 60, `Гнездо уничтожено! +${ev.coins}`, '#ffd84a', 'i_coin');
+        audio.quest();
+        break;
+      }
+      case 'shot': {
+        const t = ctl.game.get(ev.from);
+        if (!t) break;
+        const sx = (t.x + 1) * TILE;
+        const sy = (t.y + 1) * TILE - 60;
+        const tx = ev.x * TILE;
+        const ty = ev.y * TILE;
+        // Smoke stream: a few puffs along the line.
+        for (let i = 1; i <= 4; i++) this.smokePuff.emitParticleAt(sx + (tx - sx) * i / 4, sy + (ty - sy) * i / 4, 1);
+        break;
+      }
       case 'built':
       case 'removed': this.syncAll(); break;
     }
@@ -614,6 +681,7 @@ export class WorldScene extends Phaser.Scene {
     this.updateSelection();
     this.updateDayNight();
     this.updateButterflies(dt / 1000);
+    this.updateEnemies(dt / 1000);
   }
 
   private moveCamera(dt: number) {
@@ -736,6 +804,8 @@ export class WorldScene extends Phaser.Scene {
       if (full) return 'Выход забит';
     }
     if (def.behaviour === 'lab' && !g.state.research) return 'Не выбрано исследование (T)';
+    if (def.behaviour === 'tower' && (b.inv.wax ?? 0) < 1 && b.acc <= 0 && (g.state.barn.wax ?? 0) < 1) return 'Нет воска: подай воск с медогонки';
+    if (def.behaviour === 'store' && b.type === 'splitter' && Object.values(b.inv).reduce((a, v) => a + (v ?? 0), 0) >= 2) return 'Развилка забита: предметы некуда отдать';
     return null;
   }
 
@@ -816,6 +886,7 @@ export class WorldScene extends Phaser.Scene {
       if (!g.inBounds(x, y) || g.map.terrain[g.idx(x, y)] !== Terrain.Grass) ok = false;
       const o = g.at(x, y);
       if (o && !(BELT_TYPES.has(o.type) && BELT_TYPES.has(tool))) ok = false;
+      if (g.nestAt(x, y)) ok = false;
     }
     this.ghost.setVisible(true).setPosition(cx, cy);
     const key = BELT_TYPES.has(tool) ? `${tool}_s` : def.sprite;
@@ -861,19 +932,123 @@ export class WorldScene extends Phaser.Scene {
     }
   }
 
+  private nightEl = document.getElementById('night');
+
   private updateDayNight() {
-    const cam = this.cameras.main;
     const light = ctl.game.light();
-    this.night.setSize(cam.width, cam.height);
-    // Warm dusk tint, deep blue night.
     const dark = 1 - light;
-    const col = Phaser.Display.Color.Interpolate.ColorWithColor(
-      Phaser.Display.Color.ValueToColor(0xffe0b0), Phaser.Display.Color.ValueToColor(0x3048a0), 100, Math.round(dark * 100),
-    );
-    this.night.setFillStyle(Phaser.Display.Color.GetColor(col.r, col.g, col.b), light > 0.98 ? 0 : Math.min(0.75, 0.15 + dark * 0.6));
+    // DOM overlay with multiply blend: covers the whole canvas at any zoom, UI stays on top.
+    if (this.nightEl) {
+      const r = Math.round(255 - dark * 200);
+      const g = Math.round(244 - dark * 175);
+      const b = Math.round(225 - dark * 70);
+      this.nightEl.style.backgroundColor = `rgb(${r},${g},${b})`;
+      this.nightEl.style.opacity = light > 0.98 ? '0' : '1';
+    }
     if (dark > 0.6 && !this.fireflies.emitting) this.fireflies.start();
     if (dark < 0.5 && this.fireflies.emitting) this.fireflies.stop();
     this.pollen.setFrequency(light > 0.4 ? 40 : 400);
+  }
+
+  private updateEnemies(dt: number) {
+    const g = ctl.game;
+    const seen = new Set<number>();
+    for (const e of g.state.enemies) {
+      seen.add(e.id);
+      let v = this.enemyViews.get(e.id);
+      const def = ENEMIES[e.kind];
+      if (!v) {
+        const root = this.add.container(e.x * TILE, e.y * TILE);
+        const img = this.add.image(0, 0, def.sprite).setScale(e.kind === 'bear' ? 0.34 : 0.13).setOrigin(0.5, e.kind === 'bear' ? 0.8 : 0.5);
+        if (e.kind === 'bear') root.add(this.add.image(0, 8, 'shadow').setScale(0.9, 0.7));
+        root.add(img);
+        const hp = this.add.graphics();
+        root.add(hp);
+        v = { root, img, hp, lx: e.x };
+        this.enemyViews.set(e.id, v);
+        root.setAlpha(0);
+        this.tweens.add({ targets: root, alpha: 1, duration: 400 });
+      }
+      // Smooth towards sim position.
+      const tx = e.x * TILE;
+      const ty = e.y * TILE;
+      v.root.x += (tx - v.root.x) * Math.min(1, dt * 12);
+      v.root.y += (ty - v.root.y) * Math.min(1, dt * 12);
+      if (Math.abs(e.x - v.lx) > 0.01) v.img.setFlipX(e.x < v.lx);
+      v.lx = e.x;
+      const t = this.time.now;
+      if (e.kind === 'bear') {
+        const biting = e.biting !== 0;
+        v.img.setTexture(biting && Math.floor(t / 400) % 2 ? 'e_bear_up' : 'e_bear');
+        v.img.setScale(biting && Math.floor(t / 400) % 2 ? 0.3 : 0.34);
+        v.img.y = biting ? 0 : Math.abs(Math.sin(t / 120)) * -3;
+        v.img.angle = biting ? Math.sin(t / 60) * 4 : Math.sin(t / 160) * 2;
+      } else {
+        v.img.y = Math.sin(t / 70 + e.id) * 4;
+        v.img.angle = Math.sin(t / 40 + e.id) * 10;
+        v.img.scaleY = 0.13 * (0.85 + Math.abs(Math.sin(t / 25)) * 0.15);
+      }
+      v.root.setDepth(e.kind === 'hornet' ? 1e6 - 8 : v.root.y + 10);
+      v.hp.clear();
+      if (e.hp < def.hp) {
+        const w = e.kind === 'bear' ? 56 : 30;
+        const y0 = e.kind === 'bear' ? -66 : -26;
+        v.hp.fillStyle(0x000000, 0.6).fillRect(-w / 2 - 1, y0 - 1, w + 2, 7);
+        v.hp.fillStyle(0xff5a3a).fillRect(-w / 2, y0, w * Math.max(0, e.hp / def.hp), 5);
+      }
+    }
+    for (const [id, v] of this.enemyViews) {
+      if (seen.has(id)) continue;
+      this.enemyViews.delete(id);
+      this.tweens.add({ targets: v.root, alpha: 0, scale: 0.4, duration: 300, onComplete: () => v.root.destroy() });
+    }
+    // Nests
+    for (const n of g.state.nests ?? []) {
+      const v = this.nestViews.get(n.id);
+      if (!v) continue;
+      v.hp.clear();
+      if (n.hp <= 0) {
+        if (v.alive) {
+          v.alive = false;
+          this.tweens.add({ targets: v.img, scale: 0, duration: 300, onComplete: () => v.img.setTexture('e_rubble').setScale(0.35) });
+        }
+        continue;
+      }
+      v.img.angle = Math.sin(this.time.now / 300 + n.id) * 1.5;
+      if (n.hp < NEST.hp) {
+        const cx = (n.x + 1) * TILE;
+        const cy = (n.y + 1) * TILE - 140;
+        v.hp.fillStyle(0x000000, 0.6).fillRect(cx - 41, cy - 1, 82, 9);
+        v.hp.fillStyle(0xff9a3a).fillRect(cx - 40, cy, 80 * (n.hp / NEST.hp), 7);
+      }
+    }
+    // Building HP bars (only damaged ones).
+    this.hpGfx.clear();
+    for (const b of g.state.buildings) {
+      const max = BUILDINGS[b.type].hp;
+      if (b.hp >= max - 0.5) continue;
+      const s = BUILDINGS[b.type].size;
+      const w = s * TILE * 0.8;
+      const x = (b.x + s / 2) * TILE - w / 2;
+      const y = b.y * TILE - (s > 1 ? 18 : 6);
+      const f = Math.max(0, b.hp / max);
+      this.hpGfx.fillStyle(0x000000, 0.6).fillRect(x - 1, y - 1, w + 2, 8);
+      this.hpGfx.fillStyle(f > 0.5 ? 0x8ee05a : f > 0.25 ? 0xffc23d : 0xff5a3a).fillRect(x, y, w * f, 6);
+    }
+    // Smoker range when placing or selected.
+    this.rangeGfx.clear();
+    const showRange = (x: number, y: number) => {
+      this.rangeGfx.fillStyle(0xd8d0c0, 0.07).fillCircle(x, y, SMOKER.range * TILE);
+      this.rangeGfx.lineStyle(2, 0xe8e0d0, 0.35).strokeCircle(x, y, SMOKER.range * TILE);
+    };
+    if (ctl.tool === 'smoker' && ctl.hover) showRange((ctl.hover.x + 1) * TILE, (ctl.hover.y + 1) * TILE);
+    const sel = ctl.selected ? g.get(ctl.selected) : undefined;
+    if (sel && sel.type === 'smoker') showRange((sel.x + 1) * TILE, (sel.y + 1) * TILE);
+    if (ctl.tool === 'smoker' || ctl.tool === 'fence') {
+      for (const b of g.state.buildings) if (b.type === 'smoker' && b.id !== ctl.selected) {
+        this.rangeGfx.lineStyle(1, 0xe8e0d0, 0.18).strokeCircle((b.x + 1) * TILE, (b.y + 1) * TILE, SMOKER.range * TILE);
+      }
+    }
   }
 
   private updateButterflies(dt: number) {

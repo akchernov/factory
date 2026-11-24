@@ -24,7 +24,7 @@ export interface Ui {
   update(): void;
 }
 
-export function createUi(onNewGame: () => void, onContinue: () => void, focus: (x: number, y: number) => void): Ui {
+export function createUi(onNewGame: (peaceful: boolean) => void, onContinue: () => void, focus: (x: number, y: number) => void): Ui {
   const root = $('#ui');
   root.innerHTML = `
     <div id="topbar">
@@ -32,6 +32,7 @@ export function createUi(onNewGame: () => void, onContinue: () => void, focus: (
       <div class="chip money" title="Монеты">${icon('i_coin')}<b id="money">0</b><span id="income" class="sub"></span></div>
       <div class="chip clock" title="День и время"><span id="sun">☀</span><b id="day">День 1</b><span id="clock" class="sub"></span></div>
       <div class="chip queens" id="queensChip" title="Свободные матки (B)">${icon('i_bee')}<b id="queens">0</b><span class="sub">маток</span></div>
+      <div class="chip raid" id="raidChip" title="Следующий налёт"></div>
       <div class="chip barn" id="barnChip" title="Сарай: сюда падают продукты при сносе и редкие продукты пчёл"></div>
       <div class="spacer"></div>
       <button class="tb" id="btnTech" title="Технологии (T)">${icon('i_research')}<span>Наука</span><kbd>T</kbd></button>
@@ -56,6 +57,7 @@ export function createUi(onNewGame: () => void, onContinue: () => void, focus: (
     </div>
 
     <div id="inspector" class="panel hidden"></div>
+    <canvas id="minimap" class="panel" width="168" height="120" title="Мини-карта: клик переносит камеру"></canvas>
 
     <div id="hotbar">
       <div id="tooltip" class="panel hidden"></div>
@@ -76,10 +78,12 @@ export function createUi(onNewGame: () => void, onContinue: () => void, focus: (
           <button class="big primary" id="btnContinue">Продолжить</button>
           <button class="big" id="btnNew">Новая игра</button>
         </div>
+        <label class="peace"><input type="checkbox" id="peaceful"> Мирный режим (без медведей и шершней)</label>
         <ul class="features">
           <li>${icon('i_comb')} Автоматизируй цепочки: соты, мёд, воск, свечи, медовуха</li>
           <li>${icon('i_bee')} Скрещивай пчёл и выводи 8 видов, от Лесной до Золотой</li>
           <li>${icon('i_research')} 10 технологий, смена дня и ночи, живой рынок</li>
+          <li>${icon('e_bear', 'ic')} Медведи и шершни: дымари, заборы, зачистка гнёзд</li>
           <li>${icon('b_monument', 'ic')} Финал: построй и наполни Великий улей</li>
         </ul>
       </div>
@@ -156,7 +160,7 @@ export function createUi(onNewGame: () => void, onContinue: () => void, focus: (
   $('#btnNew').onclick = () => {
     audio.start();
     if (ctl.hasSave() && !confirm('Начать заново? Сохранение будет перезаписано.')) return;
-    onNewGame();
+    onNewGame($<HTMLInputElement>('#peaceful').checked);
     title.classList.add('gone');
     setTimeout(() => openIntro(), 500);
   };
@@ -295,7 +299,7 @@ export function createUi(onNewGame: () => void, onContinue: () => void, focus: (
     $('#mNew').onclick = () => {
       if (!confirm('Точно начать заново?')) return;
       closeModal();
-      onNewGame();
+      onNewGame(ctl.game.state.peaceful);
       setTimeout(openIntro, 400);
     };
   }
@@ -487,6 +491,13 @@ export function createUi(onNewGame: () => void, onContinue: () => void, focus: (
         return `<div class="stat"><span>${icon(ITEMS[k as ItemId].icon)}${ITEMS[k as ItemId].name}</span><b>${Math.min(have, v ?? 0)}/${v}</b></div>`;
       }).join('');
       body = `<p class="sub">Подавай продукцию конвейерами. Прополис и молочко берутся из сарая.</p><div id="insMon">${need}</div>`;
+    } else if (d.behaviour === 'tower') {
+      body = `<div class="stat"><span>Воск внутри</span><span id="insIn">${inv(b.inv)}</span></div>
+        <div class="stat"><span>Воск в сарае</span><b>${Math.floor(g.state.barn.wax ?? 0)}</b></div>
+        <div class="stat"><span>Прочность</span><b>${Math.ceil(b.hp)}/${d.hp}</b></div>
+        <p class="sub">Стреляет дымом по ближайшему врагу в радиусе. 1 воск = ${'2.5'}с огня. Достаёт до гнёзд шершней.</p>`;
+    } else if (d.behaviour === 'wall') {
+      body = `<div class="stat"><span>Прочность</span><b>${Math.ceil(b.hp)}/${d.hp}</b></div><p class="sub">Медведи грызут забор, пока не сломают. Ставь вокруг ульев, а дымари за ним.</p>`;
     } else if (d.behaviour === 'store') {
       body = `<div class="stat"><span>Внутри</span><span id="insIn">${inv(b.inv)}</span></div>`;
     } else if (d.behaviour === 'belt') {
@@ -553,6 +564,82 @@ export function createUi(onNewGame: () => void, onContinue: () => void, focus: (
     });
   }
 
+  function updateRaid() {
+    const g = ctl.game;
+    const el = $('#raidChip');
+    if (g.state.peaceful || !g.state.buildings.some((b) => b.type === 'hive')) { el.style.display = 'none'; return; }
+    el.style.display = '';
+    const alive = g.state.enemies.length;
+    if (alive) {
+      const bears = g.state.enemies.filter((e) => e.kind === 'bear').length;
+      el.className = 'chip raid live';
+      el.innerHTML = `⚔ <b>${bears ? `🐻${bears}` : ''} ${alive - bears ? `🐝${alive - bears}` : ''}</b><span class="sub">атака!</span>`;
+      return;
+    }
+    const tb = g.nextRaidIn('bear');
+    const th = (g.state.nests ?? []).some((n) => n.hp > 0) ? g.nextRaidIn('hornet') : Infinity;
+    const kind = tb <= th ? 'bear' : 'hornet';
+    const t = Math.min(tb, th);
+    const n = g.raidSize(kind);
+    const mm = Math.floor(t / 60);
+    const ss = Math.floor(t % 60);
+    el.className = `chip raid ${t < 30 ? 'soon' : ''}`;
+    el.innerHTML = `${kind === 'bear' ? '🐻' : '🐝'}<b>${mm}:${String(ss).padStart(2, '0')}</b><span class="sub">×${n}</span>`;
+  }
+
+  const mm = $<HTMLCanvasElement>('#minimap');
+  const mctx = mm.getContext('2d')!;
+  let mmBase: HTMLCanvasElement | null = null;
+  let mmSeed = -1;
+  function drawMinimap() {
+    const g = ctl.game;
+    const W = mm.width;
+    const H = mm.height;
+    const sx = W / g.w;
+    const sy = H / g.h;
+    if (!mmBase || mmSeed !== g.state.seed + g.state.cleared.length) {
+      mmSeed = g.state.seed + g.state.cleared.length;
+      mmBase = document.createElement('canvas');
+      mmBase.width = W;
+      mmBase.height = H;
+      const c = mmBase.getContext('2d')!;
+      const flowerCol = ['#e8e2ff', '#f4f0e0', '#b48ae8', '#ffd23a', '#e08ac0', '#9ad06a'];
+      for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) {
+        const i = g.idx(x, y);
+        const t = g.map.terrain[i];
+        const f = g.map.flower[i]!;
+        c.fillStyle = t === 1 ? '#2f7f9e' : t === 2 ? (f >= 0 ? '#6a9a3a' : '#24502a') : t === 3 ? '#8a8a80' : f >= 0 ? flowerCol[f]! : '#4f8a3a';
+        c.fillRect(x * sx, y * sy, Math.ceil(sx), Math.ceil(sy));
+      }
+    }
+    mctx.drawImage(mmBase, 0, 0);
+    for (const b of g.state.buildings) {
+      const d = BUILDINGS[b.type];
+      mctx.fillStyle = d.behaviour === 'belt' ? '#d8b070' : b.type === 'hive' ? '#ffcf4a' : d.behaviour === 'tower' ? '#e8e8e8' : '#c86a2a';
+      mctx.fillRect(b.x * sx, b.y * sy, Math.max(1.5, d.size * sx), Math.max(1.5, d.size * sy));
+    }
+    for (const n of g.state.nests ?? []) {
+      if (n.hp <= 0) continue;
+      mctx.fillStyle = '#ff7a1a';
+      mctx.beginPath();
+      mctx.arc((n.x + 1) * sx, (n.y + 1) * sy, 3.5, 0, Math.PI * 2);
+      mctx.fill();
+    }
+    mctx.fillStyle = '#ff3a2a';
+    for (const e of g.state.enemies) mctx.fillRect(e.x * sx - 1.5, e.y * sy - 1.5, 3, 3);
+    const view = (window as unknown as { __scene?: { cameras: { main: { worldView: { x: number; y: number; width: number; height: number } } } } }).__scene?.cameras.main.worldView;
+    if (view) {
+      mctx.strokeStyle = 'rgba(255,255,255,0.9)';
+      mctx.lineWidth = 1.5;
+      mctx.strokeRect(view.x / 64 * sx, view.y / 64 * sy, view.width / 64 * sx, view.height / 64 * sy);
+    }
+  }
+  mm.addEventListener('pointerdown', (e) => {
+    const r = mm.getBoundingClientRect();
+    const g = ctl.game;
+    focus(((e.clientX - r.left) / r.width) * g.w, ((e.clientY - r.top) / r.height) * g.h);
+  });
+
   let tick = 0;
   return {
     update() {
@@ -610,7 +697,8 @@ export function createUi(onNewGame: () => void, onContinue: () => void, focus: (
       $('#research').classList.toggle('idle', !r && st.buildings.some((b) => b.type === 'lab'));
       $('#research').style.display = st.quest >= 3 || st.techs.length || st.buildings.some((b) => b.type === 'lab') ? '' : 'none';
 
-      if (tick % 10 === 0) { syncSlots(); liveInspector(); }
+      if (tick % 10 === 0) { syncSlots(); liveInspector(); updateRaid(); }
+      if (tick % 15 === 0) drawMinimap();
       if (tick % 600 === 0) ctl.save();
     },
   };

@@ -1,7 +1,7 @@
 import type { BuildingId, SpeciesId } from '../core/data';
 import { Game, newGame, type Dir, type GameEvent, type GameState } from '../core/sim';
 
-const SAVE_KEY = 'beefactory_save_v2';
+const SAVE_KEY = 'beefactory_save_v3';
 
 export type UiEvent =
   | { t: 'toast'; text: string; kind?: 'error' | 'info' | 'good' }
@@ -48,15 +48,15 @@ export const ctl = {
       const raw = localStorage.getItem(SAVE_KEY);
       if (!raw) return false;
       const st = JSON.parse(raw) as GameState;
-      if (st.version !== 2) return false;
+      if (st.version !== 3) return false;
       this.game = new Game(st);
       return true;
     } catch {
       return false;
     }
   },
-  reset(seed = Math.floor(Math.random() * 1e9)) {
-    this.game = new Game(newGame(seed));
+  reset(peaceful = false, seed = Math.floor(Math.random() * 1e9)) {
+    this.game = new Game(newGame(seed, peaceful));
     this.selected = null;
     this.tool = null;
   },
