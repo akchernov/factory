@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { BUILDINGS, ENEMIES, FLOWER_IDS, FLOWERS, HIVE, ITEMS, NEST, SMOKER, SPECIES, type BuildingId, type ItemId } from '../core/data';
+import { BUILDINGS, ENEMIES, FLOWER_IDS, FLOWERS, HAND, HIVE, ITEMS, NEST, SMOKER, SPECIES, type BuildingId, type ItemId } from '../core/data';
 import { Terrain } from '../core/map';
 import { DX, DY, FAIL_TEXT, type Building, type Dir, type GameEvent } from '../core/sim';
 import { audio } from './audio';
@@ -222,7 +222,7 @@ export class WorldScene extends Phaser.Scene {
 
     // Player (beekeeper) for life and scale; walks with WASD.
     const s = g.map.start;
-    this.player = this.add.container((s.x - 2) * TILE, (s.y + 2) * TILE).setDepth(0);
+    this.player = this.add.container(g.state.player.x * TILE, g.state.player.y * TILE).setDepth(0);
     this.player.add(this.add.image(0, 8, 'shadow').setScale(0.75, 0.8));
     this.playerImg = this.add.image(0, 0, 'p_down').setScale(0.42).setOrigin(0.5, 0.85);
     this.player.add(this.playerImg);
@@ -778,7 +778,7 @@ export class WorldScene extends Phaser.Scene {
       case 'won': audio.win(); this.cameras.main.flash(800, 255, 220, 120); break;
       case 'raid': {
         const kind = ev.kind;
-        ctl.toast(kind === 'bear' ? `🐻 Медведи идут из леса: ${ev.count}!` : `🐝 Налёт шершней: ${ev.count}!`, 'error');
+        ctl.toast(kind === 'bear' ? `🐻 Медведи идут из леса: ${ev.count}! Беги к ним пасечником (WASD)` : `🐝 Налёт шершней: ${ev.count}! Пасечник отгоняет их дымом`, 'error');
         audio.error();
         this.cameras.main.shake(300, 0.003);
         break;
@@ -815,14 +815,24 @@ export class WorldScene extends Phaser.Scene {
         break;
       }
       case 'shot': {
-        const t = ctl.game.get(ev.from);
-        if (!t) break;
-        const sx = (t.x + 1) * TILE;
-        const sy = (t.y + 1) * TILE - 60;
+        const t = ev.from ? ctl.game.get(ev.from) : undefined;
+        if (ev.from && !t) break;
+        // from 0 = the beekeeper's hand smoker
+        const sx = t ? (t.x + 1) * TILE : this.player.x + (this.playerImg.flipX ? -14 : 14);
+        const sy = t ? (t.y + 1) * TILE - 60 : this.player.y - 40;
+        if (!t) {
+          this.playerImg.setFlipX(ev.x * TILE < this.player.x);
+          if (Math.random() < 0.3) audio.puff();
+        }
         const tx = ev.x * TILE;
         const ty = ev.y * TILE;
-        // Smoke stream: a few puffs along the line.
-        for (let i = 1; i <= 4; i++) this.smokePuff.emitParticleAt(sx + (tx - sx) * i / 4, sy + (ty - sy) * i / 4, 1);
+        // Smoke stream: puffs along the line; the hand smoker sprays a widening cone.
+        const n = t ? 4 : 6;
+        for (let i = 1; i <= n; i++) {
+          const k = i / n;
+          const spread = t ? 0 : k * 18;
+          this.smokePuff.emitParticleAt(sx + (tx - sx) * k + (Math.random() - 0.5) * spread, sy + (ty - sy) * k + (Math.random() - 0.5) * spread, 1);
+        }
         break;
       }
       case 'built': {
@@ -899,6 +909,7 @@ export class WorldScene extends Phaser.Scene {
       cam.scrollY += (dy / n) * sp;
     }
     this.player.setDepth(this.player.y + 20);
+    ctl.game.movePlayer(this.player.x / TILE, this.player.y / TILE);
   }
 
   private animateBelts(dtMs: number) {
@@ -1234,6 +1245,23 @@ export class WorldScene extends Phaser.Scene {
       this.hpGfx.fillStyle(0x000000, 0.6).fillRect(x - 1, y - 1, w + 2, 8);
       this.hpGfx.fillStyle(f > 0.5 ? 0x8ee05a : f > 0.25 ? 0xffc23d : 0xff5a3a).fillRect(x, y, w * f, 6);
     }
+    // Beekeeper: smoke range ring when enemies are near, charge bar under the feet.
+    const pl = g.state.player;
+    const near = g.state.enemies.some((e) => Math.hypot(e.x - pl.x, e.y - pl.y) < HAND.range + 3);
+    if (near || pl.charge < 99) {
+      const px = this.player.x;
+      const py = this.player.y;
+      if (near) {
+        this.hpGfx.lineStyle(2, pl.firing ? 0xffffff : 0xe8e0d0, pl.firing ? 0.55 : 0.3).strokeCircle(px, py, HAND.range * TILE);
+      }
+      this.hpGfx.fillStyle(0x000000, 0.6).fillRect(px - 26, py + 22, 52, 7);
+      this.hpGfx.fillStyle(pl.charge >= HAND.minCharge || pl.firing ? 0xe8e0d0 : 0x8a8070).fillRect(px - 25, py + 23, 50 * pl.charge / 100, 5);
+    }
+    if (pl.firing) {
+      this.playerImg.angle = Math.sin(this.time.now / 50) * 5;
+      if (Math.random() < 0.3) this.smokePuff.emitParticleAt(this.player.x + (this.playerImg.flipX ? -16 : 16), this.player.y - 36, 1);
+    }
+
     // Smoker range when placing or selected.
     this.rangeGfx.clear();
     const showRange = (x: number, y: number) => {

@@ -185,6 +185,7 @@ export const audio = {
     if (buzzNode && ctx) buzzNode.gain.setTargetAtTime(Math.min(0.06, hivesOnScreen * 0.012) * (0.3 + day * 0.7), ctx.currentTime, 0.4);
   },
   place() { noise(0.09, 0.35, 900, 1.5); tone(180, 0.12, 'triangle', 0.25, 90); },
+  puff() { noise(0.18, 0.12, 700, 0.7); },
   belt() { noise(0.04, 0.12, 2200, 3); },
   remove() { noise(0.18, 0.3, 500, 0.8); tone(260, 0.2, 'square', 0.06, 80); },
   click() { tone(900, 0.04, 'triangle', 0.08); },

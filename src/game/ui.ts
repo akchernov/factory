@@ -430,7 +430,8 @@ export function createUi(onNewGame: (peaceful: boolean, mode: GameMode) => void,
         <div><span class="belt-ic" style="--c:#e8b23a"><i></i><i></i></span><b>2. Конвейер</b><span>тяни мышью ОТ улья к станку, линия сама поворачивает</span></div>
         <div>${icon('b_extractor', 'bic')}<b>3. Станки</b><span>медогонка, фасовка, рынок. Следи за заданиями слева</span></div>
       </div>
-      <p class="sub">ЛКМ ставить · ПКМ снести · R повернуть · колесо зум · WASD/перетаскивание камера · Space пауза · клик по дереву: срубить (5 🪙)</p>
+      <p class="sub">ЛКМ ставить · ПКМ снести · R повернуть · колесо зум · WASD ходить пасечником (камера за ним) · Space пауза · клик по дереву: срубить (5 🪙)</p>
+      <p class="sub">🐻🐝 Пасечник сам отгоняет врагов ручным дымарём, если подойти к ним. Полоска под ним: запас дыма, восстанавливается сам.</p>
       <button class="big primary" id="introGo">Поехали!</button>`);
     $('#introGo').onclick = closeModal;
   }

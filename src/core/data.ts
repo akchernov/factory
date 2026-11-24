@@ -220,6 +220,8 @@ export const ENEMIES: Readonly<Record<EnemyKind, EnemyDef>> = {
   hornet: { name: 'Шершень', sprite: 'e_hornet', hp: 24, speed: 2.1, dps: 4, reward: 4, flying: true },
 };
 
+/** Beekeeper's hand smoker: auto-fires at the nearest enemy. Charge drains while firing and refills on its own. */
+export const HAND = { range: 3.2, dps: 20, drain: 22, regen: 12, minCharge: 15, scare: 0.45 };
 export const SMOKER = { range: 6.5, dps: 26, secondsPerWax: 2.5, ammoCap: 10 };
 export const NEST = { hp: 450, reward: 150, count: 4 };
 export const RAIDS = {
@@ -285,7 +287,7 @@ export const QUESTS_SHORT: readonly QuestDef[] = [
   { title: 'Первая семья', text: 'Поставь улей (2) рядом с цветами. Следуй за жёлтой стрелкой.', check: { kind: 'build', building: 'hive', count: 1 }, reward: 20 },
   { title: 'Медогонка', text: 'Протяни конвейер (1) ОТ улья к медогонке (3).', check: { kind: 'produced', item: 'honey', count: 4 }, reward: 30 },
   { title: 'Первая банка', text: 'Мёд в фасовку (4), банки на рынок (5).', check: { kind: 'sold', item: 'jar', count: 1 }, reward: 50 },
-  { title: 'Оборона', text: 'Вечером придёт медведь. Поставь дымарь (G) рядом с ульем: он жжёт воск из сарая и с медогонки.', check: { kind: 'build', building: 'smoker', count: 1 }, reward: 40 },
+  { title: 'Оборона', text: 'Вечером придёт медведь. Подбеги к нему пасечником (WASD) или поставь дымарь (G) у улья: он жжёт воск.', check: { kind: 'build', building: 'smoker', count: 1 }, reward: 40 },
   { title: 'Второй улей', text: 'Поставь ещё один улей у цветов и проведи его соты в ту же медогонку или в новую.', check: { kind: 'build', building: 'hive', count: 2 }, reward: 60 },
   { title: 'Наука', text: 'Построй лабораторию (6), в дереве (T) выбери «Свечное дело» и подай в неё банки конвейером.', check: { kind: 'tech', tech: 'chandlery' }, reward: 80 },
   { title: 'Свечная лавка', text: 'Воск с медогонки отправь в свечную (9), свечи на рынок. Продай 8 свечей.', check: { kind: 'sold', item: 'candle', count: 8 }, reward: 100 },
@@ -298,7 +300,7 @@ export const QUESTS: readonly QuestDef[] = [
   { title: 'Первая семья', text: 'Поставь улей (2) рядом с цветами. Чем больше цветов в радиусе, тем быстрее соты.', check: { kind: 'build', building: 'hive', count: 1 }, reward: 20 },
   { title: 'Медогонка', text: 'Поставь медогонку (3) и протяни к ней конвейер (1) от улья. Конвейер должен идти ОТ улья В медогонку.', check: { kind: 'produced', item: 'honey', count: 4 }, reward: 30 },
   { title: 'Первая банка', text: 'Мёд с медогонки отправь конвейером в фасовку (4), банки на рынок (5).', check: { kind: 'sold', item: 'jar', count: 1 }, reward: 50 },
-  { title: 'Оборона', text: 'Ночью из леса приходят медведи, днём прилетают шершни. Поставь дымарь (G) у ульев и подай ему воск с медогонки. Забор (F) задержит медведей.', check: { kind: 'build', building: 'smoker', count: 1 }, reward: 60 },
+  { title: 'Оборона', text: 'Вечером из леса приходят медведи, днём шершни. Подбеги к ним пасечником (WASD): он отгоняет дымом. Но всю пасеку один не удержишь: поставь дымарь (G) у ульев, он жжёт воск. Забор (F) задержит медведей.', check: { kind: 'build', building: 'smoker', count: 1 }, reward: 60 },
   { title: 'Своё дело', text: 'Заработай на рынке 500 монет. Больше ульев, больше цветов!', check: { kind: 'earned', count: 500 }, reward: 60 },
   { title: 'Наука', text: 'Построй лабораторию (6), открой дерево технологий (T), выбери «Свечное дело» и подай в лабораторию банки.', check: { kind: 'tech', tech: 'chandlery' }, reward: 80 },
   { title: 'Свет в окнах', text: 'Воск с медогонки отправь в свечную (9). Сделай 15 свечей.', check: { kind: 'produced', item: 'candle', count: 15 }, reward: 100 },

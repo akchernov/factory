@@ -2,7 +2,7 @@ import {
   BELT_GAP, BREED, BUILDINGS, DAY_SECONDS, FLOWERS, FLOWER_IDS, HIVE, ITEMS, ITEM_IDS, LAB_SECONDS_PER_ITEM,
   MACHINE_OUTPUT_CAP, MARKET, MONUMENT_NEEDS, MUTATIONS, NIGHT_SHARE, PREFERRED_BONUS, QUESTS, REFUND, SPECIES,
   SPECIES_IDS, START_MONEY, START_UNLOCKED, TECHS, TECH_IDS, WILD_SPECIES, QUESTS_SHORT, SHORT_TECH_COST,
-  ENEMIES, NEST, RAIDS, REGEN, SMOKER,
+  ENEMIES, HAND, NEST, RAIDS, REGEN, SMOKER,
   type BuildingId, type EnemyKind, type GameMode, type ItemId, type QuestDef, type SpeciesId, type TechId,
 } from './data';
 import { Terrain, generateMap, type MapData } from './map';
@@ -91,6 +91,8 @@ export interface GameState {
   raided: { bear: number; hornet: number };
   peaceful: boolean;
   mode: GameMode;
+  /** Beekeeper position in tiles and hand smoker charge 0..100. */
+  player: { x: number; y: number; charge: number; firing: boolean };
 }
 
 export type GameEvent =
@@ -166,6 +168,7 @@ export function newGame(seed = 20261124, peaceful = false, mode: GameMode = 'ful
     raided: { bear: 1, hornet: 1 },
     peaceful,
     mode,
+    player: { x: 0, y: 0, charge: 100, firing: false },
   };
 }
 
@@ -201,6 +204,7 @@ export class Game {
       this.map.flower[i] = -1;
     }
     if (!state.nests) state.nests = this.placeNests();
+    if (!state.player || (state.player.x === 0 && state.player.y === 0)) state.player = { x: this.map.start.x - 1.5, y: this.map.start.y + 2.5, charge: 100, firing: false };
     this.rebuild();
   }
 
@@ -617,6 +621,7 @@ export class Game {
       if (b.hp < max && st.time - b.hitAt > REGEN.delay) b.hp = Math.min(max, b.hp + max * REGEN.perSecond * DT);
     }
     this.stepRaids();
+    this.stepPlayer();
     this.stepEnemies();
     // Market recovery.
     const rec = st.techs.includes('trade') ? MARKET.tradeRecovery : MARKET.recoveryPerSecond;
@@ -835,6 +840,52 @@ export class Game {
     else this.events.push({ t: 'queen', species: result, x: b.x + 1, y: b.y + 1 });
   }
 
+  // ------------------------------------------------------------ beekeeper
+
+  /** Move the beekeeper (called by the view; walking is free and instant). */
+  movePlayer(x: number, y: number) {
+    const p = this.state.player;
+    p.x = Math.max(0, Math.min(this.map.w, x));
+    p.y = Math.max(0, Math.min(this.map.h, y));
+  }
+
+  private stepPlayer() {
+    const p = this.state.player;
+    let best: Enemy | undefined;
+    let bd = HAND.range;
+    for (const e of this.state.enemies) {
+      if (e.flee) continue;
+      const d = Math.hypot(e.x - p.x, e.y - p.y);
+      if (d <= bd) { bd = d; best = e; }
+    }
+    let nest: Nest | undefined;
+    if (!best) nest = (this.state.nests ?? []).find((n) => n.hp > 0 && Math.hypot(n.x + 1 - p.x, n.y + 1 - p.y) <= HAND.range + 0.8);
+    // Start firing only with some charge left, keep firing until empty.
+    const can = p.firing ? p.charge > 0 : p.charge >= HAND.minCharge;
+    p.firing = !!(best || nest) && can;
+    if (!p.firing) {
+      p.charge = Math.min(100, p.charge + HAND.regen * DT);
+      return;
+    }
+    p.charge = Math.max(0, p.charge - HAND.drain * DT);
+    const dmg = HAND.dps * DT;
+    const tick = Math.round(this.state.time * 10);
+    if (best) {
+      best.hp -= dmg;
+      if (tick % 3 === 0) this.events.push({ t: 'shot', from: 0, x: best.x, y: best.y });
+      if (best.hp <= 0) this.kill(best);
+    } else if (nest) {
+      nest.hp -= dmg;
+      if (tick % 3 === 0) this.events.push({ t: 'shot', from: 0, x: nest.x + 1, y: nest.y + 1 });
+      if (nest.hp <= 0) {
+        this.state.money += NEST.reward;
+        this.state.stats.earned += NEST.reward;
+        this.state.stats.nests++;
+        this.events.push({ t: 'nest', x: nest.x + 1, y: nest.y + 1, coins: NEST.reward });
+      }
+    }
+  }
+
   // ------------------------------------------------------------ combat
 
   private stepTower(t: Building) {
@@ -1024,7 +1075,9 @@ export class Game {
         }
         continue;
       }
-      const step = def.speed * DT;
+      const p = this.state.player;
+      const scared = p.firing && Math.hypot(p.x - e.x, p.y - e.y) <= HAND.range;
+      const step = def.speed * DT * (scared ? HAND.scare : 1);
       const nx = e.x + (dx / d) * step;
       const ny = e.y + (dy / d) * step;
       if (!def.flying) {

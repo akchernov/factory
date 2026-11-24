@@ -64,3 +64,23 @@ test('nests exist far from start', () => {
   assert.ok((g.state.nests ?? []).length >= 3);
   for (const n of g.state.nests!) assert.ok(Math.hypot(n.x - g.map.start.x, n.y - g.map.start.y) >= 24);
 });
+
+test('beekeeper alone drives off one bear but not a big pack', () => {
+  const one = new Game(newGame(7));
+  const p = bestSpot(one);
+  line(one, p.x, p.y);
+  const st = one.state;
+  one.movePlayer(p.x + 1, p.y + 3);
+  st.enemies.push({ id: st.nextId++, kind: 'bear', x: p.x + 1, y: p.y + 8, hp: 160, target: 0, flee: false, biting: 0 });
+  for (let i = 0; i < 600; i++) one.step();
+  assert.equal(st.enemies.length, 0, 'bear killed');
+  assert.equal(st.stats.lost, 0, 'nothing lost');
+
+  const many = new Game(newGame(7));
+  line(many, p.x, p.y);
+  const s2 = many.state;
+  many.movePlayer(p.x + 1, p.y + 3);
+  for (let i = 0; i < 6; i++) s2.enemies.push({ id: s2.nextId++, kind: 'bear', x: p.x + i, y: p.y + 8, hp: 160, target: 0, flee: false, biting: 0 });
+  for (let i = 0; i < 1200; i++) many.step();
+  assert.ok(s2.stats.lost > 0, 'a pack of 6 bears breaks through a lone beekeeper');
+});
