@@ -7,10 +7,21 @@
   </head>
   <body>
     <main id="app">
-      <h1>Bee Factory</h1>
-      <p>WASD или стрелки · движение</p>
       <div id="game" aria-label="Игровое поле"></div>
-      <p id="hud"></p>
+      <header class="game-header">
+        <div class="game-title">
+          <h1>Bee Factory</h1>
+          <p id="map-seed"></p>
+        </div>
+        <div class="viewport-controls">
+          <button id="sound-toggle" type="button" aria-pressed="true" aria-label="Звук">Звук: вкл</button>
+          <button id="center-camera" type="button" title="К персонажу (C)">К персонажу</button>
+          <button id="fullscreen" type="button" hidden>На весь экран</button>
+          <span id="fullscreen-status" role="status"></span>
+        </div>
+      </header>
+      <div id="hud"></div>
+      <p class="game-controls">WASD или стрелки — ходьба · Колесо — зум · Средняя кнопка или пробел + ЛКМ — камера · R или ПКМ — поворот · X — продажа</p>
     </main>
     <script type="module" src="/src/main.ts"></script>
   </body>
